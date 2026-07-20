@@ -1,2 +1,71 @@
 # TinkerTool
 
+A single-file wiring visualizer for hobby electronics. Lay out microcontrollers,
+SBCs, and components, define each part's connection points, and wire them
+point-to-point with color-coded jumper wires. Everything lives in one HTML file —
+no install, no build step, no server.
+
+**Current version:** v1.1 · **Live:** https://mangokarate.github.io/TinkerTool/
+
+---
+
+## Run it
+
+Double-click `index.html` — it opens in any modern browser and runs entirely on
+your machine. Once published to GitHub Pages (steps below), you can also open it
+from any device at your Pages URL.
+
+## What it does
+
+- **Parts library** — the `⊞ Parts` button drops in ready-made boards (Arduino
+  Uno / Nano, ESP32, ESP8266, Raspberry Pi 40-pin) and components (LED, resistor,
+  button, pot, servo, HC-SR04, DHT11, buzzer) with correct pin names and sides.
+- **Components** — or add a blank block and set label, size, and any number of
+  named pins (top / right / bottom / left); pins auto-space along their side.
+- **Wiring** — click a pin, then another to connect, or use the "connect to…"
+  dropdown under any pin. Wires curve out of each pin and stay attached when you
+  drag boards around.
+- **Colors** — pick from the classic jumper-wire palette (or a custom color);
+  every wire's color is editable afterward.
+- **Canvas** — drag to move, drag empty space to pan, scroll to zoom, Fit to
+  frame everything, Snap to align. Shift-click a wire to delete it fast.
+- **Save / Load** — export the whole layout to JSON and re-import it later.
+
+> Layouts save as downloaded JSON files, not in the browser — keep the exported
+> `.json` if you want to return to a diagram.
+
+## Icon
+
+`TinkerTool.ico` is a multi-size icon (16–256 px) for a desktop/taskbar shortcut,
+and serves as the browser tab icon on the hosted site.
+
+## Publishing (GitHub Desktop → public + Pages)
+
+1. **GitHub Desktop → File → Add Local Repository…** and point at this folder.
+   It already has an initial commit, so it's recognized immediately.
+2. Click **Publish repository**. **Uncheck "Keep this code private"** — Pages
+   needs a public repo on the free tier.
+3. On github.com, open the repo → **Settings → Pages → Source: Deploy from a
+   branch → Branch: `main` / `root` → Save.** Wait ~60 seconds for the live URL.
+4. Paste that URL into the "Live" line above and commit.
+
+Never let the live site be your only copy — with GitHub Desktop the files live
+both on your machine and on GitHub, so neither side alone is a single point of
+failure.
+
+## Versioning
+
+The version shows in the toolbar and travels with each commit message
+(e.g. `Update TinkerTool to v1.2 — <feature>`). Keep the same repo across
+iterations so history stays in one place — no file renaming needed.
+
+## Changelog
+
+### v1.1
+- Added Parts library (`⊞ Parts`): 5 boards + 8 common components with correct
+  pin maps. Added tab/desktop icon and favicon link.
+
+### v1.0
+- Initial release: components with configurable pins, point-to-point + dropdown
+  wiring, jumper-color palette, drag/pan/zoom canvas, snap-to-grid, JSON
+  save/load, seeded Arduino→LED example.
