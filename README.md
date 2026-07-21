@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.6 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.7 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -20,6 +20,9 @@ from any device at your Pages URL.
 - **Parts library** — the `⊞ Parts` button drops in ready-made boards (Arduino
   Uno / Nano, ESP32, ESP8266, Raspberry Pi 40-pin) and components (LED, resistor,
   button, pot, servo, HC-SR04, DHT11, buzzer) with correct pin names and sides.
+- **Shapes** — `+ Component` offers rectangle, rounded, circle or diamond.
+  Pins follow the actual outline, so a circle's pins sit on the circle rather
+  than its bounding box.
 - **Components** — or add a blank block and set label, size, colour, and any
   number of named pins (top / right / bottom / left); pins auto-space along
   their side and can be reordered or moved to another side.
@@ -40,8 +43,11 @@ from any device at your Pages URL.
   Wires that would share a route are fanned into parallel lanes so none is
   hidden underneath another, which also makes a bus read as a deliberate bundle.
   Drag any wire to reroute it by hand; double-click it to straighten it again.
-- **Tidy** — one action to snap boards to the grid and push apart anything
-  overlapping, reset hand-routed wires, or both.
+- **Tidy** — shuffles rather than settles. Each press offers a different
+  arrangement: four board layouts (nudge in place, columns, rows, columns
+  ordered by how many wires a board carries) and four routing styles (channel
+  position, which edge wires escape around, lane order). Keep pressing until one
+  looks right; it also resets any hand-routed wires.
 - **Colors** — pick from the classic jumper-wire palette (or a custom color);
   every wire's color is editable afterward. Components take a color too, from a
   preset row or a picker; labels flip between light and dark ink automatically
@@ -49,7 +55,8 @@ from any device at your Pages URL.
 - **Canvas** — drag to move, drag empty space to pan, scroll to zoom, Fit to
   frame everything. Shift-click a wire to delete it fast. Boards follow the
   pointer while you drag and land on the grid when you let go; untick **Snap**
-  for free positioning.
+  for free positioning. Select a board, wire or note and press **Delete** (or
+  Backspace) to remove it — deleting a board takes its wires with it.
 - **Notes** — the `✎ Note` button drops a callout bubble you can drag anywhere
   and type into; use them to flag the details that bite you later. Notes travel
   with the saved layout and appear on the printed report.
@@ -99,6 +106,17 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.7
+- Tidy now shuffles through options instead of applying one fixed result:
+  four board layouts and four routing styles, cycling on each press, with the
+  current one named on screen.
+- Delete / Backspace removes the selected board, wire or note. Wires can now be
+  selected, and are highlighted when they are. Keystrokes are ignored while
+  typing in a field.
+- `+ Component` offers rectangle, rounded, circle and diamond, and the shape of
+  an existing board can be changed from the editor. Pin positions follow the
+  outline of the shape.
 
 ### v1.6
 - Boards and notes now follow the pointer while dragging and snap to the grid
