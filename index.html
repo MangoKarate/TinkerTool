@@ -912,6 +912,13 @@ function renderEditor() {
   ed.appendChild(csw);
 
   // pins header
+  const lib = document.createElement("button");
+  lib.className = "ghost"; lib.textContent = "Save to library";
+  lib.title = "Store this board, with its pins and colour, in your own parts library";
+  lib.style.cssText = "margin-top:9px;width:100%;";
+  lib.onclick = () => saveToLibrary(c);
+  ed.appendChild(lib);
+
   const ph = document.createElement("div");
   ph.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px;";
   const pht = document.createElement("span");
@@ -1071,7 +1078,7 @@ function deleteComponent(id) {
   renderAll();
 }
 
-function renderAll() { renderBoard(); renderPanel(); renderNoteEditor(); updateArmBanner(); }
+function renderAll() { renderBoard(); renderPanel(); renderNoteEditor(); updateArmBanner(); autosave(); }
 function updateArmBanner() {
   const b = document.getElementById("armBanner");
   if (state.armedPin) {
@@ -1316,6 +1323,7 @@ document.getElementById("clearBtn").onclick = () => {
   if (confirm("Clear the whole board?")) {
     state.components = []; state.wires = []; state.notes = [];
     state.selected = null; state.selectedNote = null; state.armedPin = null;
+    store.del(SESSION_KEY);
     renderAll();
   }
 };
@@ -1583,24 +1591,83 @@ function addFromPart(p) {
   const w = Math.max(p.w || 130, tbMax * 48 + 26);
   const pos = spawnXY(w, h);
   const comp = { id: uid("c"), x: pos.x, y: pos.y, w, h, label: p.name, pins: partPins(p) };
+  if (p.color) comp.color = p.color;
   state.components.push(comp);
   state.selected = comp.id;
   closeLibrary();
   renderAll();
 }
 
+// ---------- Local storage: your own parts, and an autosaved session ----------
+const PARTS_KEY = "tinkertool.parts.v1", SESSION_KEY = "tinkertool.session.v1";
+const store = {
+  get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+let USER_PARTS = store.get(PARTS_KEY) || [];
+function saveUserParts() { store.set(PARTS_KEY, USER_PARTS); }
+function allParts() { return PARTS.concat(USER_PARTS); }
+
+function saveToLibrary(c) {
+  const name = (prompt("Save this board to your library as:", c.label) || "").trim();
+  if (!name) return;
+  const part = { cat: "My parts", name: name, w: c.w, user: true, left: [], right: [], top: [], bottom: [] };
+  for (const pin of c.pins) part[pin.side].push(pin.num ? { name: pin.name, num: pin.num } : pin.name);
+  if (c.color) part.color = c.color;
+  const at = USER_PARTS.findIndex(x => x.name === name);
+  if (at >= 0) {
+    if (!confirm('"' + name + '" is already in your library. Replace it?')) return;
+    USER_PARTS[at] = part;
+  } else {
+    USER_PARTS.push(part);
+  }
+  if (!saveUserParts()) alert("Could not save — this browser is blocking local storage.");
+  rebuildLibrary();
+}
+function deleteUserPart(name) {
+  if (!confirm('Remove "' + name + '" from your library? Boards already on the canvas are not affected.')) return;
+  USER_PARTS = USER_PARTS.filter(x => x.name !== name);
+  saveUserParts();
+  rebuildLibrary();
+}
+
+let saveTimer = null;
+function autosave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    store.set(SESSION_KEY, { components: state.components, wires: state.wires,
+                             notes: state.notes, routing: state.routing, seq: state.seq });
+  }, 400);
+}
+function restoreSession() {
+  const d = store.get(SESSION_KEY);
+  if (!d || !d.components || !d.components.length) return false;
+  state.components = d.components; state.wires = d.wires || []; state.notes = d.notes || [];
+  state.routing = d.routing || "tidy"; state.seq = d.seq || 1000;
+  const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
+  return true;
+}
+
 let libEl = null;
+function rebuildLibrary() { if (libEl) { libEl.remove(); libEl = null; } }
 function buildLibrary() {
   libEl = document.createElement("div");
   libEl.className = "lib-backdrop";
-  const cats = [...new Set(PARTS.map(p => p.cat))];
+  const parts = allParts();
+  const cats = [...new Set(parts.map(p => p.cat))];
   let html = '<div class="lib-modal"><div class="lib-head"><h3>Parts library</h3>' +
              '<button class="close" id="libX">✕</button></div><div class="lib-body">';
   for (const cat of cats) {
     html += `<div class="lib-cat">${cat}</div><div class="lib-grid">`;
-    for (const p of PARTS.filter(p => p.cat === cat)) {
+    for (const p of parts.filter(p => p.cat === cat)) {
       const n = (p.left||[]).length + (p.right||[]).length + (p.top||[]).length + (p.bottom||[]).length;
-      html += `<div class="lib-card" data-part="${p.name}"><div class="cn">${p.name}</div><div class="cd">${n} pins</div></div>`;
+      html += `<div class="lib-card" data-part="${esc(p.name)}" style="position:relative;">` +
+              `<div class="cn">${esc(p.name)}</div><div class="cd">${n} pins</div>` +
+              (p.user ? `<button data-del="${esc(p.name)}" title="Remove from library" ` +
+                        `style="position:absolute;top:5px;right:5px;padding:0 5px;line-height:1.4;` +
+                        `font-size:11px;border-radius:4px;">✕</button>` : "") +
+              `</div>`;
     }
     html += "</div>";
   }
@@ -1609,8 +1676,11 @@ function buildLibrary() {
   document.body.appendChild(libEl);
   libEl.addEventListener("click", e => { if (e.target === libEl) closeLibrary(); });
   libEl.querySelector("#libX").onclick = closeLibrary;
+  libEl.querySelectorAll("[data-del]").forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); deleteUserPart(btn.dataset.del); };
+  });
   libEl.querySelectorAll(".lib-card").forEach(card => {
-    card.onclick = () => { const p = PARTS.find(p => p.name === card.dataset.part); if (p) addFromPart(p); };
+    card.onclick = () => { const p = allParts().find(x => x.name === card.dataset.part); if (p) addFromPart(p); };
   });
 }
 function openLibrary() { if (!libEl) buildLibrary(); libEl.classList.add("show"); }
@@ -1642,7 +1712,7 @@ function seed() {
   );
 }
 
-seed();
+if (!restoreSession()) seed();
 applyView();
 renderAll();
 </script>
