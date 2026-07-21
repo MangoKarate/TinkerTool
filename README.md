@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.7 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.8 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -20,9 +20,10 @@ from any device at your Pages URL.
 - **Parts library** — the `⊞ Parts` button drops in ready-made boards (Arduino
   Uno / Nano, ESP32, ESP8266, Raspberry Pi 40-pin) and components (LED, resistor,
   button, pot, servo, HC-SR04, DHT11, buzzer) with correct pin names and sides.
-- **Shapes** — `+ Component` offers rectangle, rounded, circle or diamond.
-  Pins follow the actual outline, so a circle's pins sit on the circle rather
-  than its bounding box.
+- **Shapes** — `+ Component` offers the usual flowchart set: rectangle,
+  rounded, diamond, parallelogram, hexagon, circle, cylinder, document,
+  trapezoid, triangle and chevron. Pins follow the real outline, so a
+  parallelogram's pins sit on its slant and a cylinder's on its curved ends.
 - **Components** — or add a blank block and set label, size, colour, and any
   number of named pins (top / right / bottom / left); pins auto-space along
   their side and can be reordered or moved to another side.
@@ -106,6 +107,15 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.8
+- Extended the shape set to eleven flowchart shapes: added parallelogram,
+  hexagon, cylinder, document, trapezoid, triangle and chevron alongside the
+  existing rectangle, rounded, circle and diamond.
+- Shapes are defined as normalised outlines and pins are placed by intersecting
+  that outline, so every shape gets correct pin positions from one routine
+  rather than a special case each. Shapes with a narrow apex centre their label
+  instead of colliding with it.
 
 ### v1.7
 - Tidy now shuffles through options instead of applying one fixed result:

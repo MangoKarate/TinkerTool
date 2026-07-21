@@ -207,7 +207,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v1.7</span>
+      <span class="ver" id="verTag">v1.8</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -340,23 +340,82 @@ const noteLayer = document.getElementById("noteLayer");
 const SVGNS = "http://www.w3.org/2000/svg";
 
 // ---------- Geometry ----------
+// Every non-round shape is one normalised outline in 0..1 space. Pins are placed
+// by intersecting the outline, so they sit on the real edge rather than the box.
+function arcPts(cx, cy, rx, ry, a0, a1, n) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (a1 - a0) * i / n;
+    out.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
+  }
+  return out;
+}
+function wavePts(y, amp, n) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    out.push([1 - t, y + amp * Math.sin(t * Math.PI * 2)]);
+  }
+  return out;
+}
+const SHAPE_PTS = {
+  diamond:       [[.5,0],[1,.5],[.5,1],[0,.5]],
+  parallelogram: [[.24,0],[1,0],[.76,1],[0,1]],
+  hexagon:       [[.25,0],[.75,0],[1,.5],[.75,1],[.25,1],[0,.5]],
+  trapezoid:     [[.22,0],[.78,0],[1,1],[0,1]],
+  triangle:      [[.5,0],[1,1],[0,1]],
+  chevron:       [[0,0],[.78,0],[1,.5],[.78,1],[0,1],[.22,.5]],
+  cylinder:      arcPts(.5,.14,.5,.14, Math.PI, Math.PI*2, 14).concat(arcPts(.5,.86,.5,.14, 0, Math.PI, 14)),
+  document:      [[0,0],[1,0]].concat(wavePts(.84,.13,18))
+};
+// Shapes whose top edge is too narrow to carry a label.
+const SHAPE_CENTRE_LABEL = { circle:1, diamond:1, triangle:1, cylinder:1, hexagon:1 };
+
+// Where the outline sits for a given side, at fraction t along that side.
+function polyEdge(pts, side, t) {
+  const horiz = (side === "left" || side === "right");
+  let best = null;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const p0 = horiz ? a[1] : a[0], p1 = horiz ? b[1] : b[0];
+    if ((p0 - t) * (p1 - t) > 0) continue;
+    if (Math.abs(p1 - p0) < 1e-9) continue;
+    const u = (t - p0) / (p1 - p0);
+    const v = horiz ? a[0] + (b[0] - a[0]) * u : a[1] + (b[1] - a[1]) * u;
+    if (best === null) best = v;
+    else best = (side === "left" || side === "top") ? Math.min(best, v) : Math.max(best, v);
+  }
+  return best;
+}
+
 function pinPos(comp, pin) {
   const side = comp.pins.filter(p => p.side === pin.side);
   const idx = side.indexOf(pin);
   const frac = (idx + 1) / (side.length + 1);
   const shape = comp.shape || "rect";
-  if (shape === "circle" || shape === "diamond") {
+  if (shape === "circle") {
     const cx = comp.x + comp.w / 2, cy = comp.y + comp.h / 2;
     const rx = comp.w / 2, ry = comp.h / 2;
-    const inset = (t) => shape === "circle" ? Math.sqrt(Math.max(0, 1 - t * t)) : (1 - t);
     if (pin.side === "left" || pin.side === "right") {
       const y = comp.y + comp.h * frac;
-      const dx = rx * inset(Math.min(1, Math.abs(y - cy) / ry));
+      const t = Math.min(1, Math.abs(y - cy) / ry);
+      const dx = rx * Math.sqrt(Math.max(0, 1 - t * t));
       return { x: pin.side === "left" ? cx - dx : cx + dx, y: y };
     }
     const x = comp.x + comp.w * frac;
-    const dy = ry * inset(Math.min(1, Math.abs(x - cx) / rx));
+    const t = Math.min(1, Math.abs(x - cx) / rx);
+    const dy = ry * Math.sqrt(Math.max(0, 1 - t * t));
     return { x: x, y: pin.side === "top" ? cy - dy : cy + dy };
+  }
+  const outline = SHAPE_PTS[shape];
+  if (outline) {
+    const e = polyEdge(outline, pin.side, frac);
+    if (pin.side === "left" || pin.side === "right") {
+      return { x: comp.x + (e === null ? (pin.side === "left" ? 0 : 1) : e) * comp.w,
+               y: comp.y + frac * comp.h };
+    }
+    return { x: comp.x + frac * comp.w,
+             y: comp.y + (e === null ? (pin.side === "top" ? 0 : 1) : e) * comp.h };
   }
   switch (pin.side) {
     case "top":    return { x: comp.x + comp.w * frac, y: comp.y };
@@ -626,11 +685,10 @@ function renderBoard() {
       body = document.createElementNS(SVGNS, "ellipse");
       body.setAttribute("cx", c.x + c.w / 2); body.setAttribute("cy", c.y + c.h / 2);
       body.setAttribute("rx", c.w / 2); body.setAttribute("ry", c.h / 2);
-    } else if (shape === "diamond") {
+    } else if (SHAPE_PTS[shape]) {
       body = document.createElementNS(SVGNS, "polygon");
-      const mx = c.x + c.w / 2, my = c.y + c.h / 2;
-      body.setAttribute("points", mx + "," + c.y + " " + (c.x + c.w) + "," + my + " " +
-                                  mx + "," + (c.y + c.h) + " " + c.x + "," + my);
+      body.setAttribute("points", SHAPE_PTS[shape]
+        .map(q => (c.x + q[0] * c.w) + "," + (c.y + q[1] * c.h)).join(" "));
     } else {
       body = document.createElementNS(SVGNS, "rect");
       body.setAttribute("x", c.x); body.setAttribute("y", c.y);
@@ -657,7 +715,7 @@ function renderBoard() {
     }
 
     const label = document.createElementNS(SVGNS, "text");
-    const wideTop = (shape === "rect" || shape === "rounded");
+    const wideTop = !SHAPE_CENTRE_LABEL[shape];
     label.setAttribute("x", c.x + c.w / 2);
     label.setAttribute("y", wideTop ? c.y + 15 : c.y + c.h / 2);
     label.setAttribute("text-anchor", "middle"); label.setAttribute("dominant-baseline", "middle");
@@ -1167,10 +1225,17 @@ function updateArmBanner() {
 
 // ---------- Add component ----------
 const SHAPES = [
-  ["rect",    "Rectangle", "Boards, ICs, breakouts"],
-  ["rounded", "Rounded",   "Modules and blocks"],
-  ["circle",  "Circle",    "Round displays, speakers, motors"],
-  ["diamond", "Diamond",   "Junctions and splices"]
+  ["rect",          "Rectangle",     "Process · boards, ICs, breakouts"],
+  ["rounded",       "Rounded",       "Terminator · start, end, modules"],
+  ["diamond",       "Diamond",       "Decision · junctions and splices"],
+  ["parallelogram", "Parallelogram", "Data · input and output"],
+  ["hexagon",       "Hexagon",       "Preparation · setup steps"],
+  ["circle",        "Circle",        "Connector · round displays, speakers"],
+  ["cylinder",      "Cylinder",      "Storage · database, battery"],
+  ["document",      "Document",      "Document · reports and printouts"],
+  ["trapezoid",     "Trapezoid",     "Manual operation"],
+  ["triangle",      "Triangle",      "Merge and extract"],
+  ["chevron",       "Chevron",       "Flow step · staged process"]
 ];
 let shapeEl = null;
 function openShapePicker() {
