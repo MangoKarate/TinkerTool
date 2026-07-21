@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.3 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.4 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -27,6 +27,8 @@ from any device at your Pages URL.
 - **Routing** — `Route: Tidy` runs wires as straight segments with rounded
   corners and steps them clear of a board when a pin faces the wrong way, so
   nothing cuts across a part. `Curved` and `Direct` are there if you prefer them.
+  Wires that would share a route are fanned into parallel lanes so none is
+  hidden underneath another, which also makes a bus read as a deliberate bundle.
   Drag any wire to reroute it by hand; double-click it to straighten it again.
 - **Tidy** — one action to snap boards to the grid and push apart anything
   overlapping, reset hand-routed wires, or both.
@@ -73,6 +75,12 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.4
+- Wires that want the same channel are now assigned parallel lanes instead of
+  stacking on identical paths. On a seven-wire test layout the worst-buried
+  wire went from 89% hidden to 11%; escape runs and the vertical drop into a
+  board each get their own lane.
 
 ### v1.3
 - Component labels moved to the top of each block with a divider rule, and now
