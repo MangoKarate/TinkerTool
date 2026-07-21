@@ -1,0 +1,1024 @@
+{
+  "components": [
+    {
+      "id": "c1",
+      "x": 48,
+      "y": 48,
+      "w": 155,
+      "h": 74,
+      "label": "Barrel adapter (5V 3A)",
+      "pins": [
+        {
+          "id": "pin2",
+          "name": "+",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin3",
+          "name": "−",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#5e3320"
+    },
+    {
+      "id": "c4",
+      "x": 48,
+      "y": 192,
+      "w": 195,
+      "h": 146,
+      "label": "5V DISTRIBUTION",
+      "pins": [
+        {
+          "id": "pin5",
+          "name": "BARREL +",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin6",
+          "name": "PICO VSYS",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin7",
+          "name": "PCA V+",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin8",
+          "name": "AMP VIN",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin9",
+          "name": "RAD VCC (H1-1)",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#5e3320"
+    },
+    {
+      "id": "c10",
+      "x": 48,
+      "y": 456,
+      "w": 195,
+      "h": 122,
+      "label": "MAIN GROUND",
+      "pins": [
+        {
+          "id": "pin11",
+          "name": "BARREL −",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin12",
+          "name": "PICO GND-38",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin13",
+          "name": "PCA GND",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin14",
+          "name": "AMP GND",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#2b3038"
+    },
+    {
+      "id": "c15",
+      "x": 48,
+      "y": 672,
+      "w": 195,
+      "h": 146,
+      "label": "3V3 DISTRIBUTION",
+      "pins": [
+        {
+          "id": "pin16",
+          "name": "PICO 3V3",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin17",
+          "name": "EYE1 VCC",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin18",
+          "name": "EYE2 VCC",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin19",
+          "name": "SD 3V",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin20",
+          "name": "PCA VCC",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#22304f"
+    },
+    {
+      "id": "c21",
+      "x": 432,
+      "y": 192,
+      "w": 200,
+      "h": 458,
+      "label": "Pico 2 W / Treedix",
+      "pins": [
+        {
+          "id": "pin22",
+          "name": "VSYS",
+          "num": "39",
+          "side": "left"
+        },
+        {
+          "id": "pin23",
+          "name": "3V3 OUT",
+          "num": "36",
+          "side": "left"
+        },
+        {
+          "id": "pin24",
+          "name": "GND",
+          "num": "38",
+          "side": "left"
+        },
+        {
+          "id": "pin25",
+          "name": "GND",
+          "num": "3",
+          "side": "left"
+        },
+        {
+          "id": "pin26",
+          "name": "GND",
+          "num": "18",
+          "side": "left"
+        },
+        {
+          "id": "pin27",
+          "name": "GND",
+          "num": "23",
+          "side": "left"
+        },
+        {
+          "id": "pin28",
+          "name": "GND",
+          "num": "28",
+          "side": "left"
+        },
+        {
+          "id": "pin29",
+          "name": "GP00 TX",
+          "num": "1",
+          "side": "right"
+        },
+        {
+          "id": "pin30",
+          "name": "GP01 RX",
+          "num": "2",
+          "side": "right"
+        },
+        {
+          "id": "pin31",
+          "name": "GP04 SDA",
+          "num": "6",
+          "side": "right"
+        },
+        {
+          "id": "pin32",
+          "name": "GP05 SCL",
+          "num": "7",
+          "side": "right"
+        },
+        {
+          "id": "pin33",
+          "name": "GP09",
+          "num": "12",
+          "side": "right"
+        },
+        {
+          "id": "pin34",
+          "name": "GP10",
+          "num": "14",
+          "side": "right"
+        },
+        {
+          "id": "pin35",
+          "name": "GP11",
+          "num": "15",
+          "side": "right"
+        },
+        {
+          "id": "pin36",
+          "name": "GP12",
+          "num": "16",
+          "side": "right"
+        },
+        {
+          "id": "pin37",
+          "name": "GP13",
+          "num": "17",
+          "side": "right"
+        },
+        {
+          "id": "pin38",
+          "name": "GP14",
+          "num": "19",
+          "side": "right"
+        },
+        {
+          "id": "pin39",
+          "name": "GP15",
+          "num": "20",
+          "side": "right"
+        },
+        {
+          "id": "pin40",
+          "name": "GP16",
+          "num": "21",
+          "side": "right"
+        },
+        {
+          "id": "pin41",
+          "name": "GP17",
+          "num": "22",
+          "side": "right"
+        },
+        {
+          "id": "pin42",
+          "name": "GP18",
+          "num": "24",
+          "side": "right"
+        },
+        {
+          "id": "pin43",
+          "name": "GP19",
+          "num": "25",
+          "side": "right"
+        },
+        {
+          "id": "pin44",
+          "name": "GP20",
+          "num": "26",
+          "side": "right"
+        },
+        {
+          "id": "pin45",
+          "name": "GP21",
+          "num": "27",
+          "side": "right"
+        },
+        {
+          "id": "pin46",
+          "name": "GP22",
+          "num": "29",
+          "side": "right"
+        }
+      ]
+    },
+    {
+      "id": "c47",
+      "x": 840,
+      "y": 48,
+      "w": 165,
+      "h": 146,
+      "label": "microSD breakout",
+      "pins": [
+        {
+          "id": "pin48",
+          "name": "3V",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin49",
+          "name": "GND",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin50",
+          "name": "DO / MISO",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin51",
+          "name": "CS",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin52",
+          "name": "CLK / SCK",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin53",
+          "name": "DI / MOSI",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin54",
+          "name": "CD",
+          "num": "",
+          "side": "right"
+        }
+      ]
+    },
+    {
+      "id": "c55",
+      "x": 840,
+      "y": 288,
+      "w": 165,
+      "h": 146,
+      "label": "PCA9685 (servo driver)",
+      "pins": [
+        {
+          "id": "pin56",
+          "name": "V+",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin57",
+          "name": "GND",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin58",
+          "name": "VCC",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin59",
+          "name": "SDA",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin60",
+          "name": "SCL",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin61",
+          "name": "CH0",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin62",
+          "name": "CH1",
+          "num": "",
+          "side": "right"
+        }
+      ],
+      "color": "#4a2f52"
+    },
+    {
+      "id": "c63",
+      "x": 1152,
+      "y": 336,
+      "w": 150,
+      "h": 70,
+      "label": "470uF 16V cap",
+      "pins": [
+        {
+          "id": "pin64",
+          "name": "+",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin65",
+          "name": "−",
+          "num": "",
+          "side": "right"
+        }
+      ],
+      "color": "#4a2f52"
+    },
+    {
+      "id": "c66",
+      "x": 840,
+      "y": 528,
+      "w": 165,
+      "h": 146,
+      "label": "MAX98357A (amp)",
+      "pins": [
+        {
+          "id": "pin67",
+          "name": "VIN",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin68",
+          "name": "GND",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin69",
+          "name": "BCLK",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin70",
+          "name": "LRC / WS",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin71",
+          "name": "DIN",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin72",
+          "name": "OUT+",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin73",
+          "name": "OUT−",
+          "num": "",
+          "side": "right"
+        }
+      ],
+      "color": "#3c4a25"
+    },
+    {
+      "id": "c74",
+      "x": 1152,
+      "y": 552,
+      "w": 120,
+      "h": 74,
+      "label": "Speaker",
+      "pins": [
+        {
+          "id": "pin75",
+          "name": "+",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin76",
+          "name": "−",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#3c4a25"
+    },
+    {
+      "id": "c77",
+      "x": 840,
+      "y": 744,
+      "w": 175,
+      "h": 170,
+      "label": "LD2410C radar (H1)",
+      "pins": [
+        {
+          "id": "pin78",
+          "name": "VCC",
+          "num": "H1-1",
+          "side": "left"
+        },
+        {
+          "id": "pin79",
+          "name": "GND",
+          "num": "H1-2",
+          "side": "left"
+        },
+        {
+          "id": "pin80",
+          "name": "TX",
+          "num": "H1-3",
+          "side": "left"
+        },
+        {
+          "id": "pin81",
+          "name": "RX",
+          "num": "H1-4",
+          "side": "left"
+        },
+        {
+          "id": "pin82",
+          "name": "OUT",
+          "num": "H1-5",
+          "side": "left"
+        },
+        {
+          "id": "pin83",
+          "name": "— empty —",
+          "num": "H1-6",
+          "side": "left"
+        }
+      ]
+    },
+    {
+      "id": "c84",
+      "x": 840,
+      "y": 984,
+      "w": 170,
+      "h": 146,
+      "label": "Eye 1 (GC9A01)",
+      "pins": [
+        {
+          "id": "pin85",
+          "name": "VCC",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin86",
+          "name": "GND",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin87",
+          "name": "SCL / SCK",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin88",
+          "name": "SDA / MOSI",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin89",
+          "name": "DC",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin90",
+          "name": "RST",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin91",
+          "name": "CS",
+          "num": "",
+          "side": "right"
+        }
+      ],
+      "color": "#22304f"
+    },
+    {
+      "id": "c92",
+      "x": 1152,
+      "y": 984,
+      "w": 170,
+      "h": 146,
+      "label": "Eye 2 (GC9A01)",
+      "pins": [
+        {
+          "id": "pin93",
+          "name": "VCC",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin94",
+          "name": "GND",
+          "num": "",
+          "side": "left"
+        },
+        {
+          "id": "pin95",
+          "name": "SCL / SCK",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin96",
+          "name": "SDA / MOSI",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin97",
+          "name": "DC",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin98",
+          "name": "RST",
+          "num": "",
+          "side": "right"
+        },
+        {
+          "id": "pin99",
+          "name": "CS",
+          "num": "",
+          "side": "right"
+        }
+      ],
+      "color": "#22304f"
+    },
+    {
+      "id": "c100",
+      "x": 1152,
+      "y": 72,
+      "w": 140,
+      "h": 70,
+      "label": "Head servo",
+      "pins": [
+        {
+          "id": "pin101",
+          "name": "3-wire plug",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#4a2f52"
+    },
+    {
+      "id": "c102",
+      "x": 1152,
+      "y": 216,
+      "w": 140,
+      "h": 70,
+      "label": "Jaw servo",
+      "pins": [
+        {
+          "id": "pin103",
+          "name": "3-wire plug",
+          "num": "",
+          "side": "left"
+        }
+      ],
+      "color": "#4a2f52"
+    }
+  ],
+  "wires": [
+    {
+      "id": "w104",
+      "from": "pin2",
+      "to": "pin5",
+      "color": "#d94141"
+    },
+    {
+      "id": "w105",
+      "from": "pin22",
+      "to": "pin6",
+      "color": "#d94141"
+    },
+    {
+      "id": "w106",
+      "from": "pin56",
+      "to": "pin7",
+      "color": "#d94141"
+    },
+    {
+      "id": "w107",
+      "from": "pin67",
+      "to": "pin8",
+      "color": "#d94141"
+    },
+    {
+      "id": "w108",
+      "from": "pin78",
+      "to": "pin9",
+      "color": "#d94141"
+    },
+    {
+      "id": "w109",
+      "from": "pin3",
+      "to": "pin11",
+      "color": "#22262e"
+    },
+    {
+      "id": "w110",
+      "from": "pin24",
+      "to": "pin12",
+      "color": "#22262e"
+    },
+    {
+      "id": "w111",
+      "from": "pin57",
+      "to": "pin13",
+      "color": "#22262e"
+    },
+    {
+      "id": "w112",
+      "from": "pin68",
+      "to": "pin14",
+      "color": "#22262e"
+    },
+    {
+      "id": "w113",
+      "from": "pin23",
+      "to": "pin16",
+      "color": "#d94141"
+    },
+    {
+      "id": "w114",
+      "from": "pin85",
+      "to": "pin17",
+      "color": "#d94141"
+    },
+    {
+      "id": "w115",
+      "from": "pin93",
+      "to": "pin18",
+      "color": "#d94141"
+    },
+    {
+      "id": "w116",
+      "from": "pin48",
+      "to": "pin19",
+      "color": "#d94141"
+    },
+    {
+      "id": "w117",
+      "from": "pin58",
+      "to": "pin20",
+      "color": "#d94141"
+    },
+    {
+      "id": "w118",
+      "from": "pin79",
+      "to": "pin25",
+      "color": "#22262e"
+    },
+    {
+      "id": "w119",
+      "from": "pin49",
+      "to": "pin26",
+      "color": "#22262e"
+    },
+    {
+      "id": "w120",
+      "from": "pin86",
+      "to": "pin27",
+      "color": "#22262e"
+    },
+    {
+      "id": "w121",
+      "from": "pin94",
+      "to": "pin28",
+      "color": "#22262e"
+    },
+    {
+      "id": "w122",
+      "from": "pin87",
+      "to": "pin42",
+      "color": "#e5c53a"
+    },
+    {
+      "id": "w123",
+      "from": "pin95",
+      "to": "pin87",
+      "color": "#e5c53a"
+    },
+    {
+      "id": "w124",
+      "from": "pin88",
+      "to": "pin43",
+      "color": "#3fae5a"
+    },
+    {
+      "id": "w125",
+      "from": "pin96",
+      "to": "pin88",
+      "color": "#3fae5a"
+    },
+    {
+      "id": "w126",
+      "from": "pin89",
+      "to": "pin40",
+      "color": "#9b5cd0"
+    },
+    {
+      "id": "w127",
+      "from": "pin97",
+      "to": "pin89",
+      "color": "#9b5cd0"
+    },
+    {
+      "id": "w128",
+      "from": "pin90",
+      "to": "pin41",
+      "color": "#e08a3c"
+    },
+    {
+      "id": "w129",
+      "from": "pin98",
+      "to": "pin90",
+      "color": "#e08a3c"
+    },
+    {
+      "id": "w130",
+      "from": "pin91",
+      "to": "pin44",
+      "color": "#f2f2ee"
+    },
+    {
+      "id": "w131",
+      "from": "pin99",
+      "to": "pin91",
+      "color": "#f2f2ee"
+    },
+    {
+      "id": "w132",
+      "from": "pin50",
+      "to": "pin36",
+      "color": "#e08a3c"
+    },
+    {
+      "id": "w133",
+      "from": "pin51",
+      "to": "pin37",
+      "color": "#3d7fd9"
+    },
+    {
+      "id": "w134",
+      "from": "pin52",
+      "to": "pin38",
+      "color": "#e5c53a"
+    },
+    {
+      "id": "w135",
+      "from": "pin53",
+      "to": "pin39",
+      "color": "#3fae5a"
+    },
+    {
+      "id": "w136",
+      "from": "pin54",
+      "to": "pin46",
+      "color": "#8a94a0"
+    },
+    {
+      "id": "w137",
+      "from": "pin69",
+      "to": "pin33",
+      "color": "#8a5a3c"
+    },
+    {
+      "id": "w138",
+      "from": "pin70",
+      "to": "pin34",
+      "color": "#8a94a0"
+    },
+    {
+      "id": "w139",
+      "from": "pin71",
+      "to": "pin35",
+      "color": "#9b5cd0"
+    },
+    {
+      "id": "w140",
+      "from": "pin72",
+      "to": "pin75",
+      "color": "#d94141"
+    },
+    {
+      "id": "w141",
+      "from": "pin73",
+      "to": "pin76",
+      "color": "#22262e"
+    },
+    {
+      "id": "w142",
+      "from": "pin59",
+      "to": "pin31",
+      "color": "#3d7fd9"
+    },
+    {
+      "id": "w143",
+      "from": "pin60",
+      "to": "pin32",
+      "color": "#e5c53a"
+    },
+    {
+      "id": "w144",
+      "from": "pin101",
+      "to": "pin61",
+      "color": "#8a94a0"
+    },
+    {
+      "id": "w145",
+      "from": "pin103",
+      "to": "pin62",
+      "color": "#8a94a0"
+    },
+    {
+      "id": "w148",
+      "from": "pin82",
+      "to": "pin45",
+      "color": "#8a94a0"
+    },
+    {
+      "id": "w149",
+      "from": "pin64",
+      "to": "pin56",
+      "color": "#d94141"
+    },
+    {
+      "id": "w150",
+      "from": "pin65",
+      "to": "pin57",
+      "color": "#22262e"
+    },
+    {
+      "id": "w157",
+      "from": "pin80",
+      "to": "pin30",
+      "color": "#f2f2ee"
+    },
+    {
+      "id": "w158",
+      "from": "pin81",
+      "to": "pin29",
+      "color": "#3d7fd9"
+    }
+  ],
+  "notes": [
+    {
+      "id": "n151",
+      "x": 40,
+      "y": 900,
+      "w": 300,
+      "text": "Wire flags: print one per label from Verified Wire Labels v30 — one flag per wire, placed at the hub / distribution / H1 end."
+    },
+    {
+      "id": "n152",
+      "x": 1140,
+      "y": 740,
+      "w": 300,
+      "text": "H1 position 6 stays physically empty: no terminal, no wire, no flag."
+    },
+    {
+      "id": "n153",
+      "x": 1140,
+      "y": 420,
+      "w": 300,
+      "text": "470uF 16V across V+ and GND — striped negative lead to GND. Follow the PCA9685's printed PWM / V+ / GND order; servo lead colours are not universal."
+    },
+    {
+      "id": "n154",
+      "x": 1140,
+      "y": 660,
+      "w": 300,
+      "text": "Speaker OUT− is not ground. Neither speaker lead may touch common ground."
+    },
+    {
+      "id": "n155",
+      "x": 440,
+      "y": 40,
+      "w": 300,
+      "text": "microSD: use the pad identified as the 3.3V input, not the 5V pad. Leave the existing 10k card-detect pull-up in place."
+    },
+    {
+      "id": "n156",
+      "x": 440,
+      "y": 700,
+      "w": 300,
+      "text": "Eyes share five Y-splices. The flagged pigtail runs to the Treedix; the Eye 2 leg into the splice is drawn but carries no flag."
+    }
+  ],
+  "routing": "tidy",
+  "seq": 159
+}

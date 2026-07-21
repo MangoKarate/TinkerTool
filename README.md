@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.4 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.5 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -20,8 +20,18 @@ from any device at your Pages URL.
 - **Parts library** — the `⊞ Parts` button drops in ready-made boards (Arduino
   Uno / Nano, ESP32, ESP8266, Raspberry Pi 40-pin) and components (LED, resistor,
   button, pot, servo, HC-SR04, DHT11, buzzer) with correct pin names and sides.
-- **Components** — or add a blank block and set label, size, and any number of
-  named pins (top / right / bottom / left); pins auto-space along their side.
+- **Components** — or add a blank block and set label, size, colour, and any
+  number of named pins (top / right / bottom / left); pins auto-space along
+  their side and can be reordered or moved to another side.
+- **Pin numbers** — a pin's number is separate from where it sits, so a board
+  can keep a readable layout — power down one side, GPIO down the other — while
+  still telling you which physical pin to count to. The number draws outside the
+  block and the function name inside, the way an IC schematic is normally drawn.
+- **Your own parts** — edit any board on the canvas, then `Save to library` to
+  keep it under "My parts". Built-ins are read-only, so forking one never costs
+  you the original.
+- **Autosave** — the layout is kept in the browser and restored when you come
+  back, so a closed tab no longer loses your work.
 - **Wiring** — click a pin, then another to connect, or use the "connect to…"
   dropdown under any pin. Wires stay attached when you drag boards around.
 - **Routing** — `Route: Tidy` runs wires as straight segments with rounded
@@ -46,8 +56,20 @@ from any device at your Pages URL.
   your notes. Print it or save it as a PDF.
 - **Save / Load** — export the whole layout to JSON and re-import it later.
 
-> Layouts save as downloaded JSON files, not in the browser — keep the exported
-> `.json` if you want to return to a diagram.
+> Autosave keeps the current layout in this browser only. Export the `.json`
+> if you want to keep a diagram, move it to another machine, or version it.
+
+## Shelley Skelley
+
+`shelley-skelley-v30.json` is the finished wiring diagram for that build — 15
+parts, 47 wires, and the manifest's cautions as notes on the canvas. Open
+TinkerTool, click **Load**, and pick that file.
+
+All 40 connections are checked against *Shelley Skelley Verified Wire Labels
+v30*, including the radar's UART crossover (radar TX to GP01, radar RX to GP00).
+The extra seven wires are the five unflagged Eye 2 legs into the Y-splices and
+the two leads of the 470uF decoupling cap. H1 position 6 is drawn and left
+deliberately unwired.
 
 ## Icon
 
@@ -75,6 +97,18 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.5
+- Pin numbers are now separate from pin position, drawn outside the block with
+  the function name inside. The Pico 2 W / Treedix carries its real DIP numbers
+  and the LD2410C its H1 harness positions.
+- Pins can be reordered within a side from the editor.
+- Added capacitors (ceramic and electrolytic), diode, SPST switch and fuse, plus
+  the 470uF 16V the Shelley build calls for.
+- Added an editable parts library: save any board under "My parts", stored in
+  the browser. Built-ins stay read-only.
+- Added autosave and restore of the working layout.
+- Added `shelley-skelley-v30.json`, the complete pre-wired Shelley diagram.
 
 ### v1.4
 - Wires that want the same channel are now assigned parallel lanes instead of
