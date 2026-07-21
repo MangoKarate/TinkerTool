@@ -938,7 +938,7 @@ svg.addEventListener("wheel", (e) => {
 }, { passive: false });
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { closeLibrary(); state.armedPin = null; renderAll(); }
+  if (e.key === "Escape") { closeReport(); closeLibrary(); state.armedPin = null; renderAll(); }
 });
 
 // ---------- Toolbar ----------
@@ -1069,69 +1069,91 @@ function buildReport() {
   const ver = (document.getElementById("verTag") || {}).textContent || "";
   const today = new Date().toISOString().slice(0, 10);
 
-  const doc = `<!doctype html><html><head><meta charset="utf-8">
-<title>Wiring Blueprint — ${esc(today)}</title>
-<style>
-  @page { size: landscape; margin: 10mm; }
-  :root { --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans: system-ui,-apple-system,"Segoe UI",sans-serif; --accent:#c9821f; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:#e8ecf1; font-family:var(--sans); color:#12222f; }
-  .bar { padding:10px 16px; background:#16324a; color:#fff; display:flex; gap:12px; align-items:center; }
-  .bar button { font:inherit; padding:6px 14px; border:0; border-radius:6px; background:var(--accent); color:#241300; font-weight:600; cursor:pointer; }
-  .bar span { font-size:12px; opacity:.85; }
-  .sheet { background:#fff; width:290mm; margin:14px auto; padding:6mm; box-shadow:0 2px 14px rgba(0,0,0,.18); }
-  .frame { border:2px solid #16324a; padding:5mm; }
-  .dwgwrap { display:flex; align-items:center; justify-content:center; border-bottom:1.5px solid #16324a; padding-bottom:4mm; }
-  svg.dwg { width:100%; height:108mm; }
-  svg.dwg #compLayer rect { fill:#ffffff !important; stroke:#16324a !important; stroke-width:1.3 !important; }
-  svg.dwg #compLayer text { fill:#16324a !important; }
-  svg.dwg #noteLayer rect { fill:#fffbe6 !important; stroke:#b08b34 !important; }
-  svg.dwg #noteLayer text { fill:#4a3d1c !important; }
-  svg.dwg #wireLayer path { stroke-width:2.4 !important; }
-  .title { display:flex; gap:0; margin-top:4mm; border:1.5px solid #16324a; }
-  .title div { padding:2.5mm 3mm; border-right:1px solid #16324a; font-size:10pt; }
-  .title div:last-child { border-right:0; }
-  .title .k { display:block; font-size:7pt; letter-spacing:.09em; text-transform:uppercase; color:#5b7183; margin-bottom:1mm; }
-  .title .grow { flex:1; }
-  [contenteditable] { outline:none; min-width:30mm; display:inline-block; }
-  [contenteditable]:focus { background:#fff6e2; }
-  h2 { font-size:9pt; letter-spacing:.12em; text-transform:uppercase; color:#5b7183; margin:5mm 0 2mm; }
-  table { width:100%; border-collapse:collapse; font-size:8.5pt; }
-  th { text-align:left; background:#eef2f6; border:1px solid #c3cfd9; padding:1.6mm 2mm; font-size:7.5pt; text-transform:uppercase; letter-spacing:.07em; color:#41586b; }
-  td { border:1px solid #d5dee5; padding:1.4mm 2mm; }
-  td.n { width:8mm; color:#7b8b99; text-align:right; }
-  td.pin { font-family:var(--mono); font-size:8pt; }
-  td.col { white-space:nowrap; }
-  .sw { display:inline-block; width:9px; height:9px; border-radius:2px; border:1px solid rgba(0,0,0,.35); margin-right:5px; vertical-align:-1px; }
-  .notes { margin:0; padding-left:6mm; font-size:9pt; }
-  .notes li { margin-bottom:1.4mm; }
-  .none { font-size:9pt; color:#7b8b99; margin:0; }
-  @media print { .bar { display:none; } body { background:#fff; } .sheet { width:auto; margin:0; padding:0; box-shadow:none; } }
-</style></head><body>
-<div class="bar"><button onclick="window.print()">Print / Save as PDF</button>
-<span>Landscape is preset. Click the title-block fields to fill them in before printing.</span></div>
-<div class="sheet"><div class="frame">
-  <div class="dwgwrap">${drawing}</div>
-  <div class="title">
-    <div class="grow"><span class="k">Project</span><span contenteditable>Untitled wiring diagram</span></div>
-    <div><span class="k">Drawn by</span><span contenteditable>&nbsp;</span></div>
-    <div><span class="k">Date</span>${esc(today)}</div>
-    <div><span class="k">Rev</span><span contenteditable>A</span></div>
-    <div><span class="k">Parts</span>${state.components.length}</div>
-    <div><span class="k">Wires</span>${state.wires.length}</div>
-    <div><span class="k">Tool</span>TinkerTool ${esc(ver)}</div>
-  </div>
-  <h2>Wire schedule</h2>
-  ${rows ? '<table><thead><tr><th></th><th>From</th><th>Pin</th><th>To</th><th>Pin</th><th>Color</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="none">No connections on this drawing.</p>'}
-  <h2>Notes</h2>
-  ${notes}
-</div></div></body></html>`;
+  const ver2 = ver, today2 = today;
+  closeReport();
 
-  const win = window.open("", "_blank");
-  if (!win) { alert("Your browser blocked the report window — allow pop-ups for TinkerTool and try again."); return; }
-  win.document.write(doc);
-  win.document.close();
+  const style = document.createElement("style");
+  style.id = "reportStyle";
+  style.textContent = REPORT_CSS;
+  document.head.appendChild(style);
+
+  const ov = document.createElement("div");
+  ov.id = "reportOverlay";
+  ov.innerHTML =
+    '<div class="rbar">' +
+      '<button data-print>Print / Save as PDF</button>' +
+      '<button data-close class="sec">Close</button>' +
+      '<span>Landscape is preset. Click the title-block fields to fill them in before printing.</span>' +
+    '</div>' +
+    '<div class="sheet"><div class="frame">' +
+      '<div class="dwgwrap">' + drawing + '</div>' +
+      '<div class="title">' +
+        '<div class="grow"><span class="k">Project</span><span contenteditable>Untitled wiring diagram</span></div>' +
+        '<div><span class="k">Drawn by</span><span contenteditable>&nbsp;</span></div>' +
+        '<div><span class="k">Date</span>' + esc(today2) + '</div>' +
+        '<div><span class="k">Rev</span><span contenteditable>A</span></div>' +
+        '<div><span class="k">Parts</span>' + state.components.length + '</div>' +
+        '<div><span class="k">Wires</span>' + state.wires.length + '</div>' +
+        '<div><span class="k">Tool</span>TinkerTool ' + esc(ver2) + '</div>' +
+      '</div>' +
+      '<h2>Wire schedule</h2>' +
+      (rows
+        ? '<table><thead><tr><th></th><th>From</th><th>Pin</th><th>To</th><th>Pin</th><th>Color</th></tr></thead><tbody>' + rows + '</tbody></table>'
+        : '<p class="none">No connections on this drawing.</p>') +
+      '<h2>Notes</h2>' + notes +
+    '</div></div>';
+
+  document.body.appendChild(ov);
+  ov.querySelector("[data-print]").onclick = () => window.print();
+  ov.querySelector("[data-close]").onclick = closeReport;
 }
+
+function closeReport() {
+  const o = document.getElementById("reportOverlay"); if (o) o.remove();
+  const st = document.getElementById("reportStyle"); if (st) st.remove();
+}
+
+const REPORT_CSS = `
+@page { size: landscape; margin: 10mm; }
+#reportOverlay { position:fixed; inset:0; z-index:9999; overflow:auto; background:#e8ecf1; font-family:var(--sans); color:#12222f; }
+#reportOverlay .rbar { position:sticky; top:0; padding:10px 16px; background:#16324a; color:#fff; display:flex; gap:12px; align-items:center; }
+#reportOverlay .rbar button { font:inherit; padding:6px 14px; border:0; border-radius:6px; background:var(--accent); color:#241300; font-weight:600; cursor:pointer; }
+#reportOverlay .rbar button.sec { background:#3c5a72; color:#fff; }
+#reportOverlay .rbar span { font-size:12px; opacity:.85; }
+#reportOverlay .sheet { background:#fff; width:290mm; max-width:calc(100% - 28px); margin:14px auto; padding:6mm; box-shadow:0 2px 14px rgba(0,0,0,.18); }
+#reportOverlay .frame { border:2px solid #16324a; padding:5mm; }
+#reportOverlay .dwgwrap { display:flex; align-items:center; justify-content:center; border-bottom:1.5px solid #16324a; padding-bottom:4mm; }
+#reportOverlay svg.dwg { width:100%; height:108mm; }
+#reportOverlay svg.dwg #compLayer rect { fill:#ffffff !important; stroke:#16324a !important; stroke-width:1.3 !important; }
+#reportOverlay svg.dwg #compLayer text { fill:#16324a !important; }
+#reportOverlay svg.dwg #noteLayer rect { fill:#fffbe6 !important; stroke:#b08b34 !important; }
+#reportOverlay svg.dwg #noteLayer text { fill:#4a3d1c !important; }
+#reportOverlay svg.dwg #wireLayer path { stroke-width:2.4 !important; }
+#reportOverlay .title { display:flex; margin-top:4mm; border:1.5px solid #16324a; }
+#reportOverlay .title div { padding:2.5mm 3mm; border-right:1px solid #16324a; font-size:10pt; }
+#reportOverlay .title div:last-child { border-right:0; }
+#reportOverlay .title .k { display:block; font-size:7pt; letter-spacing:.09em; text-transform:uppercase; color:#5b7183; margin-bottom:1mm; }
+#reportOverlay .title .grow { flex:1; }
+#reportOverlay [contenteditable] { outline:none; min-width:30mm; display:inline-block; }
+#reportOverlay [contenteditable]:focus { background:#fff6e2; }
+#reportOverlay h2 { font-size:9pt; letter-spacing:.12em; text-transform:uppercase; color:#5b7183; margin:5mm 0 2mm; }
+#reportOverlay table { width:100%; border-collapse:collapse; font-size:8.5pt; }
+#reportOverlay th { text-align:left; background:#eef2f6; border:1px solid #c3cfd9; padding:1.6mm 2mm; font-size:7.5pt; text-transform:uppercase; letter-spacing:.07em; color:#41586b; }
+#reportOverlay td { border:1px solid #d5dee5; padding:1.4mm 2mm; }
+#reportOverlay td.n { width:8mm; color:#7b8b99; text-align:right; }
+#reportOverlay td.pin { font-family:var(--mono); font-size:8pt; }
+#reportOverlay td.col { white-space:nowrap; }
+#reportOverlay .sw { display:inline-block; width:9px; height:9px; border-radius:2px; border:1px solid rgba(0,0,0,.35); margin-right:5px; vertical-align:-1px; }
+#reportOverlay .notes { margin:0; padding-left:6mm; font-size:9pt; }
+#reportOverlay .notes li { margin-bottom:1.4mm; }
+#reportOverlay .none { font-size:9pt; color:#7b8b99; margin:0; }
+@media print {
+  .app { display:none !important; }
+  #reportOverlay { position:static !important; overflow:visible !important; background:#fff !important; }
+  #reportOverlay .rbar { display:none !important; }
+  #reportOverlay .sheet { width:auto !important; max-width:none !important; margin:0 !important; padding:0 !important; box-shadow:none !important; }
+}
+`;
 
 // ---------- Parts library ----------
 const PARTS = [
