@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.2 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.3 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -23,10 +23,17 @@ from any device at your Pages URL.
 - **Components** — or add a blank block and set label, size, and any number of
   named pins (top / right / bottom / left); pins auto-space along their side.
 - **Wiring** — click a pin, then another to connect, or use the "connect to…"
-  dropdown under any pin. Wires curve out of each pin and stay attached when you
-  drag boards around.
+  dropdown under any pin. Wires stay attached when you drag boards around.
+- **Routing** — `Route: Tidy` runs wires as straight segments with rounded
+  corners and steps them clear of a board when a pin faces the wrong way, so
+  nothing cuts across a part. `Curved` and `Direct` are there if you prefer them.
+  Drag any wire to reroute it by hand; double-click it to straighten it again.
+- **Tidy** — one action to snap boards to the grid and push apart anything
+  overlapping, reset hand-routed wires, or both.
 - **Colors** — pick from the classic jumper-wire palette (or a custom color);
-  every wire's color is editable afterward.
+  every wire's color is editable afterward. Components take a color too, from a
+  preset row or a picker; labels flip between light and dark ink automatically
+  so they stay readable on any background.
 - **Canvas** — drag to move, drag empty space to pan, scroll to zoom, Fit to
   frame everything, Snap to align. Shift-click a wire to delete it fast.
 - **Notes** — the `✎ Note` button drops a callout bubble you can drag anywhere
@@ -66,6 +73,16 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.3
+- Component labels moved to the top of each block with a divider rule, and now
+  shrink or clip to fit, so they no longer collide with pin names.
+- Rewrote wire routing: straight runs with rounded corners, and wires step
+  around a board when a pin points away from its target. Added Curved and
+  Direct styles, drag-to-reroute, and double-click to straighten.
+- Added Tidy: snap boards to the grid and separate overlaps, reset wire
+  routing, or both.
+- Added per-component colors with a preset palette and automatic label contrast.
 
 ### v1.2
 - Added note bubbles (`✎ Note`): draggable, auto-sizing callouts, saved with

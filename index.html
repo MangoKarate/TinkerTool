@@ -207,7 +207,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v1.2</span>
+      <span class="ver" id="verTag">v1.3</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -221,6 +221,20 @@
       <span class="zoomval" id="zoomVal">100%</span>
       <button id="zoomIn" class="tiny">+</button>
       <button id="zoomFit" class="ghost tiny">Fit</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <select id="routeSel" title="Wire routing style" style="width:auto;font-size:11.5px;">
+        <option value="tidy">Route: Tidy</option>
+        <option value="curved">Route: Curved</option>
+        <option value="direct">Route: Direct</option>
+      </select>
+      <select id="tidySel" title="Tidy up the board" style="width:auto;font-size:11.5px;">
+        <option value="">Tidy…</option>
+        <option value="both">Tidy both</option>
+        <option value="boards">Tidy boards</option>
+        <option value="wires">Tidy wires</option>
+      </select>
     </div>
     <div class="tb-sep"></div>
     <label class="row" style="gap:6px; font-size:12px; color:var(--ink-mut); cursor:pointer;">
@@ -296,6 +310,7 @@ const state = {
   components: [],   // {id, x, y, w, h, label, pins:[{id,name,side}]}
   wires: [],        // {id, from, to, color}   (from/to = pinId)
   notes: [],        // {id, x, y, w, text}
+  routing: "tidy",  // "tidy" | "curved" | "direct"
   selected: null,   // component id
   selectedNote: null,
   armedPin: null,   // pinId
@@ -341,13 +356,92 @@ function findPin(pinId) {
   return null;
 }
 
-function wirePath(a, b, aSide, bSide) {
+const WIRE_STUB = 16, WIRE_RADIUS = 9, WIRE_CLEAR = 22;
+
+// When a pin points away from where the wire has to go, step clear of the board
+// first rather than cutting straight back across it.
+function escapePts(pt, side, comp, targetX) {
+  if (!comp) return [];
+  const overTop = comp.y - WIRE_CLEAR, underBottom = comp.y + comp.h + WIRE_CLEAR;
+  const facingAway =
+    (side === "left"  && targetX > comp.x + comp.w) ||
+    (side === "right" && targetX < comp.x);
+  if (!facingAway) return [];
+  const ey = Math.abs(pt.y - overTop) <= Math.abs(pt.y - underBottom) ? overTop : underBottom;
+  return [{ x: pt.x, y: ey }];
+}
+
+// Turn a polyline into a path with small rounded corners: straight runs, gentle turns.
+function roundedPath(pts, r) {
+  if (pts.length < 3) return "M " + pts.map(q => q.x + " " + q.y).join(" L ");
+  let d = "M " + pts[0].x + " " + pts[0].y;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+    const v1 = { x: p1.x - p0.x, y: p1.y - p0.y };
+    const v2 = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const l1 = Math.hypot(v1.x, v1.y), l2 = Math.hypot(v2.x, v2.y);
+    if (l1 < 0.5 || l2 < 0.5) continue;
+    const rr = Math.min(r, l1 / 2, l2 / 2);
+    const s1 = { x: p1.x - v1.x / l1 * rr, y: p1.y - v1.y / l1 * rr };
+    const e1 = { x: p1.x + v2.x / l2 * rr, y: p1.y + v2.y / l2 * rr };
+    d += " L " + s1.x + " " + s1.y + " Q " + p1.x + " " + p1.y + " " + e1.x + " " + e1.y;
+  }
+  const last = pts[pts.length - 1];
+  return d + " L " + last.x + " " + last.y;
+}
+
+function wirePath(a, b, aSide, bSide, mode, bend, ca, cb) {
   const na = SIDE_NORMAL[aSide], nb = SIDE_NORMAL[bSide];
-  const dist = Math.hypot(b.x - a.x, b.y - a.y);
-  const off = Math.min(Math.max(dist * 0.4, 36), 150);
-  const c1 = { x: a.x + na[0] * off, y: a.y + na[1] * off };
-  const c2 = { x: b.x + nb[0] * off, y: b.y + nb[1] * off };
-  return `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
+  const m = mode || state.routing || "tidy";
+  const bx = (bend && bend.x) || 0, by = (bend && bend.y) || 0;
+
+  if (m === "curved") {
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const off = Math.min(Math.max(dist * 0.22, 22), 64);
+    const c1 = { x: a.x + na[0] * off + bx, y: a.y + na[1] * off + by };
+    const c2 = { x: b.x + nb[0] * off + bx, y: b.y + nb[1] * off + by };
+    return "M " + a.x + " " + a.y + " C " + c1.x + " " + c1.y + ", " + c2.x + " " + c2.y + ", " + b.x + " " + b.y;
+  }
+
+  const p1 = { x: a.x + na[0] * WIRE_STUB, y: a.y + na[1] * WIRE_STUB };
+  const p2 = { x: b.x + nb[0] * WIRE_STUB, y: b.y + nb[1] * WIRE_STUB };
+
+  if (m === "direct") {
+    const pts = [a, p1];
+    if (bx || by) pts.push({ x: (p1.x + p2.x) / 2 + bx, y: (p1.y + p2.y) / 2 + by });
+    pts.push(p2, b);
+    return roundedPath(pts, WIRE_RADIUS);
+  }
+
+  // "tidy": right-angle routing that first escapes around a board when a pin faces away
+  const ea = escapePts(p1, aSide, ca, b.x);
+  const eb = escapePts(p2, bSide, cb, a.x);
+  const s1 = ea.length ? ea[ea.length - 1] : p1;
+  const s2 = eb.length ? eb[eb.length - 1] : p2;
+  // After stepping clear of a board the wire is travelling vertically, so the
+  // next leg is horizontal regardless of which way the pin originally pointed.
+  const aHoriz = ea.length ? true : (na[0] !== 0);
+  const bHoriz = eb.length ? true : (nb[0] !== 0);
+
+  const mid = [];
+  if (ea.length || eb.length) {
+    // Hug the escape line: run clear of the board, then turn in. A mid-channel
+    // Z here would drop straight back through the board we just went around.
+    mid.push({ x: s2.x + bx, y: s1.y + by });
+  } else if (aHoriz && bHoriz) {
+    const chX = (s1.x + s2.x) / 2 + bx;
+    mid.push({ x: chX, y: s1.y }, { x: chX, y: s2.y });
+  } else if (!aHoriz && !bHoriz) {
+    const chY = (s1.y + s2.y) / 2 + by;
+    mid.push({ x: s1.x, y: chY }, { x: s2.x, y: chY });
+  } else if (aHoriz) {
+    mid.push({ x: s2.x + bx, y: s1.y + by });
+  } else {
+    mid.push({ x: s1.x + bx, y: s2.y + by });
+  }
+
+  const pts = [a, p1].concat(ea, mid, eb.slice().reverse(), [p2, b]);
+  return roundedPath(pts, WIRE_RADIUS);
 }
 
 // ---------- Coordinate conversion ----------
@@ -375,7 +469,7 @@ function renderBoard() {
     const a = findPin(w.from), b = findPin(w.to);
     if (!a || !b) continue;
     const pa = pinPos(a.comp, a.pin), pb = pinPos(b.comp, b.pin);
-    const d = wirePath(pa, pb, a.pin.side, b.pin.side);
+    const d = wirePath(pa, pb, a.pin.side, b.pin.side, w.route, w.bend, a.comp, b.comp);
     const shadow = document.createElementNS(SVGNS, "path");
     shadow.setAttribute("d", d);
     shadow.setAttribute("fill", "none");
@@ -403,6 +497,17 @@ function renderBoard() {
     sheen.setAttribute("pointer-events", "none");
     sheen.setAttribute("transform", "translate(0 -1)");
     wireLayer.appendChild(sheen);
+
+    const whit = document.createElementNS(SVGNS, "path");
+    whit.setAttribute("d", d);
+    whit.setAttribute("fill", "none");
+    whit.setAttribute("stroke", "transparent");
+    whit.setAttribute("stroke-width", "16");
+    whit.setAttribute("stroke-linecap", "round");
+    whit.dataset.wire = w.id;
+    whit.dataset.wireHit = w.id;
+    whit.style.cursor = "grab";
+    wireLayer.appendChild(whit);
   }
 
   // components
@@ -415,9 +520,11 @@ function renderBoard() {
     body.setAttribute("x", c.x); body.setAttribute("y", c.y);
     body.setAttribute("width", c.w); body.setAttribute("height", c.h);
     body.setAttribute("rx", "8");
-    body.setAttribute("fill", c.id === state.selected ? "#20604f" : "#1f3b4d");
+    const fill = c.color || "#1f3b4d";
+    const ink = readableInk(fill);
+    body.setAttribute("fill", fill);
     body.setAttribute("stroke", c.id === state.selected ? "var(--accent)" : "#2c5468");
-    body.setAttribute("stroke-width", c.id === state.selected ? "2" : "1.5");
+    body.setAttribute("stroke-width", c.id === state.selected ? "2.5" : "1.5");
     body.style.cursor = "grab";
     body.dataset.body = c.id;
     g.appendChild(body);
@@ -431,13 +538,21 @@ function renderBoard() {
     g.appendChild(tex);
 
     const label = document.createElementNS(SVGNS, "text");
-    label.setAttribute("x", c.x + c.w / 2); label.setAttribute("y", c.y + c.h / 2);
+    label.setAttribute("x", c.x + c.w / 2); label.setAttribute("y", c.y + 15);
     label.setAttribute("text-anchor", "middle"); label.setAttribute("dominant-baseline", "middle");
-    label.setAttribute("fill", "#cfe0e8"); label.setAttribute("font-size", "13");
+    label.setAttribute("fill", ink); label.setAttribute("font-size", "12.5");
     label.setAttribute("font-family", "var(--mono)"); label.setAttribute("font-weight", "600");
     label.setAttribute("pointer-events", "none");
+    label.dataset.fitW = Math.max(20, c.w - 18);
     label.textContent = c.label;
     g.appendChild(label);
+
+    const rule = document.createElementNS(SVGNS, "line");
+    rule.setAttribute("x1", c.x + 9); rule.setAttribute("x2", c.x + c.w - 9);
+    rule.setAttribute("y1", c.y + 26); rule.setAttribute("y2", c.y + 26);
+    rule.setAttribute("stroke", ink); rule.setAttribute("stroke-opacity", ".22");
+    rule.setAttribute("pointer-events", "none");
+    g.appendChild(rule);
 
     // pins
     for (const p of c.pins) {
@@ -473,13 +588,34 @@ function renderBoard() {
       if (p.side === "bottom"){ ty = pos.y - 9; }
       t.setAttribute("x", tx); t.setAttribute("y", ty);
       t.setAttribute("text-anchor", anchor); t.setAttribute("dominant-baseline", "middle");
-      t.setAttribute("fill", "#9fb6c0"); t.setAttribute("font-size", "9.5");
+      t.setAttribute("fill", ink); t.setAttribute("fill-opacity", ".72"); t.setAttribute("font-size", "9.5");
       t.setAttribute("font-family", "var(--mono)"); t.setAttribute("pointer-events", "none");
       t.textContent = p.name;
       g.appendChild(t);
     }
     compLayer.appendChild(g);
   }
+
+  // Labels are measured only once they are in the document: shrink to fit, then clip.
+  compLayer.querySelectorAll("text[data-fit-w]").forEach(el => {
+    const maxW = parseFloat(el.dataset.fitW);
+    let fs = 12.5;
+    let len = el.getComputedTextLength();
+    while (len > maxW && fs > 8) {
+      fs -= 0.5;
+      el.setAttribute("font-size", fs);
+      len = el.getComputedTextLength();
+    }
+    if (len > maxW) {
+      const full = el.textContent;
+      let n = full.length;
+      while (n > 1) {
+        el.textContent = full.slice(0, n) + "…";
+        if (el.getComputedTextLength() <= maxW) break;
+        n--;
+      }
+    }
+  });
 
   renderNotes();
 }
@@ -674,6 +810,26 @@ function renderEditor() {
   r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 600); renderBoard(); }));
   ed.appendChild(r2);
 
+  const r3 = document.createElement("div"); r3.className = "row"; r3.style.marginTop = "8px";
+  const cl = document.createElement("label"); cl.className = "fld"; cl.style.flex = "1";
+  const cs = document.createElement("span"); cs.textContent = "Color";
+  const ci = document.createElement("input"); ci.type = "color"; ci.value = c.color || "#1f3b4d";
+  ci.oninput = () => { c.color = ci.value; renderBoard(); };
+  cl.appendChild(cs); cl.appendChild(ci);
+  r3.appendChild(cl); ed.appendChild(r3);
+
+  const csw = document.createElement("div");
+  csw.style.cssText = "display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;";
+  for (const pair of COMP_COLORS) {
+    const btn = document.createElement("button");
+    btn.title = pair[0];
+    btn.style.cssText = "width:21px;height:21px;border-radius:5px;padding:0;cursor:pointer;" +
+                        "border:1px solid #3a4761;background:" + pair[1];
+    btn.onclick = () => { c.color = pair[1]; renderAll(); };
+    csw.appendChild(btn);
+  }
+  ed.appendChild(csw);
+
   // pins header
   const ph = document.createElement("div");
   ph.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px;";
@@ -779,6 +935,18 @@ function field(labelText, type, value, onInput, grow) {
 }
 const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || lo));
 
+function readableInk(hex) {
+  const h = String(hex || "").replace("#", "");
+  const v = h.length === 3 ? h.split("").map(ch => ch + ch).join("") : h;
+  const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
+  if ([r, g, b].some(isNaN)) return "#cfe0e8";
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "#14202a" : "#e6eff5";
+}
+const COMP_COLORS = [
+  ["Slate", "#1f3b4d"], ["Teal", "#20604f"], ["Plum", "#4a2f52"], ["Rust", "#5e3320"],
+  ["Navy", "#22304f"], ["Moss", "#3c4a25"], ["Graphite", "#2b3038"], ["Sand", "#d8cbb0"]
+];
+
 function wireExists(a, b) {
   return state.wires.some(w => (w.from === a && w.to === b) || (w.from === b && w.to === a));
 }
@@ -863,6 +1031,14 @@ svg.addEventListener("pointerdown", (e) => {
     // select-to-delete via confirm-less toggle: arm nothing, just remove on click? Better: select in list.
     // Clicking a wire cycles its selection highlight -> we simply delete via panel. Here: quick delete on shift.
     if (e.shiftKey) { deleteWire(wireEl.dataset.wire); return; }
+    const w = state.wires.find(x => x.id === wireEl.dataset.wire);
+    if (w) {
+      const pt = toWorld(e.clientX, e.clientY);
+      const b0 = w.bend || { x: 0, y: 0 };
+      drag = { type: "wire", id: w.id, sx: pt.x, sy: pt.y, bx: b0.x, by: b0.y, moved: false };
+      svg.setPointerCapture(e.pointerId);
+      return;
+    }
   }
   if (bodyEl) {
     const c = state.components.find(c => c.id === bodyEl.dataset.body);
@@ -888,6 +1064,14 @@ svg.addEventListener("pointermove", (e) => {
     c.x = snap(w.x - drag.dx); c.y = snap(w.y - drag.dy);
     drag.moved = true;
     renderBoard();
+  } else if (drag.type === "wire") {
+    const pt = toWorld(e.clientX, e.clientY);
+    const w = state.wires.find(x => x.id === drag.id);
+    if (w) {
+      w.bend = { x: drag.bx + (pt.x - drag.sx), y: drag.by + (pt.y - drag.sy) };
+      drag.moved = true;
+      renderBoard();
+    }
   } else if (drag.type === "note") {
     const w = toWorld(e.clientX, e.clientY);
     const n = state.notes.find(x => x.id === drag.id);
@@ -909,6 +1093,13 @@ svg.addEventListener("pointerup", (e) => {
   }
   svg.classList.remove("panning");
   drag = null;
+});
+
+svg.addEventListener("dblclick", (e) => {
+  const wireEl = e.target.closest("[data-wire]");
+  if (!wireEl) return;
+  const w = state.wires.find(x => x.id === wireEl.dataset.wire);
+  if (w && w.bend) { delete w.bend; renderBoard(); }
 });
 
 function handlePinClick(pinId) {
@@ -946,6 +1137,14 @@ document.getElementById("addComp").onclick = addComponent;
 document.getElementById("addNote").onclick = addNote;
 document.getElementById("addLib").onclick = openLibrary;
 document.getElementById("reportBtn").onclick = buildReport;
+document.getElementById("routeSel").onchange = (e) => { state.routing = e.target.value; renderBoard(); };
+document.getElementById("tidySel").onchange = (e) => {
+  const v = e.target.value;
+  e.target.value = "";
+  if (v === "wires") tidyWires();
+  else if (v === "boards") tidyBoards();
+  else if (v === "both") { tidyBoards(); tidyWires(); }
+};
 document.getElementById("zoomIn").onclick = () => zoomBy(1.2);
 document.getElementById("zoomOut").onclick = () => zoomBy(1 / 1.2);
 document.getElementById("zoomFit").onclick = fitView;
@@ -985,7 +1184,7 @@ function fitView() {
 
 // save / load
 document.getElementById("saveBtn").onclick = () => {
-  const data = JSON.stringify({ components: state.components, wires: state.wires, notes: state.notes, seq: state.seq }, null, 2);
+  const data = JSON.stringify({ components: state.components, wires: state.wires, notes: state.notes, routing: state.routing, seq: state.seq }, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -1003,6 +1202,8 @@ document.getElementById("fileInput").onchange = (e) => {
       state.components = d.components || [];
       state.wires = d.wires || [];
       state.notes = d.notes || [];
+      state.routing = d.routing || "tidy";
+      const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
       state.seq = d.seq || 1000;
       state.selected = null; state.selectedNote = null; state.armedPin = null;
       renderAll(); fitView();
@@ -1019,6 +1220,38 @@ document.getElementById("clearBtn").onclick = () => {
     renderAll();
   }
 };
+
+// ---------- Tidy ----------
+function tidyWires() {
+  for (const w of state.wires) delete w.bend;
+  renderAll();
+}
+function tidyBoards() {
+  const G = 24, GAP = 28;
+  for (const c of state.components) { c.x = Math.round(c.x / G) * G; c.y = Math.round(c.y / G) * G; }
+  for (let iter = 0; iter < 80; iter++) {
+    let moved = false;
+    for (let i = 0; i < state.components.length; i++) {
+      for (let j = i + 1; j < state.components.length; j++) {
+        const A = state.components[i], B = state.components[j];
+        const ox = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x) + GAP;
+        const oy = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y) + GAP;
+        if (ox > 0 && oy > 0) {
+          moved = true;
+          if (ox <= oy) {
+            const push = Math.max(G, Math.ceil(ox / 2 / G) * G);
+            if (A.x <= B.x) { A.x -= push; B.x += push; } else { A.x += push; B.x -= push; }
+          } else {
+            const push = Math.max(G, Math.ceil(oy / 2 / G) * G);
+            if (A.y <= B.y) { A.y -= push; B.y += push; } else { A.y += push; B.y -= push; }
+          }
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  renderAll();
+}
 
 // ---------- Blueprint report ----------
 function esc(s) {
@@ -1044,7 +1277,7 @@ function buildReport() {
 
   clone.removeAttribute("transform");
   const mat = clone.querySelector("#mat"); if (mat) mat.remove();
-  clone.querySelectorAll("[data-pin]").forEach(el => el.remove());
+  clone.querySelectorAll("[data-pin], [data-wire-hit]").forEach(el => el.remove());
   clone.querySelectorAll("#wireLayer path").forEach(p => { if (!p.dataset.wire) p.remove(); });
 
   const pad = 44;
