@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.5 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.6 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -47,7 +47,9 @@ from any device at your Pages URL.
   preset row or a picker; labels flip between light and dark ink automatically
   so they stay readable on any background.
 - **Canvas** — drag to move, drag empty space to pan, scroll to zoom, Fit to
-  frame everything, Snap to align. Shift-click a wire to delete it fast.
+  frame everything. Shift-click a wire to delete it fast. Boards follow the
+  pointer while you drag and land on the grid when you let go; untick **Snap**
+  for free positioning.
 - **Notes** — the `✎ Note` button drops a callout bubble you can drag anywhere
   and type into; use them to flag the details that bite you later. Notes travel
   with the saved layout and appear on the printed report.
@@ -97,6 +99,16 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.6
+- Boards and notes now follow the pointer while dragging and snap to the grid
+  on release. Previously they snapped on every move, so a drag shorter than
+  half a grid step produced no movement at all and felt broken.
+- A right-angle wire can only slide along its own channel. The cursor now says
+  which way, and a drag across the grain no longer records a bend that does
+  nothing but still counts as hand-routed.
+- Tidy reports what it did, instead of appearing broken when the board was
+  already tidy and there was nothing to change.
 
 ### v1.5
 - Pin numbers are now separate from pin position, drawn outside the block with
