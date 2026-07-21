@@ -656,6 +656,23 @@ function renderBoard() {
       t.setAttribute("font-family", "var(--mono)"); t.setAttribute("pointer-events", "none");
       t.textContent = p.name;
       g.appendChild(t);
+
+      // Pin number sits outside the block, on the mat, the way an IC schematic
+      // draws it: number outside, function name inside.
+      if (p.num) {
+        const nt = document.createElementNS(SVGNS, "text");
+        let nx = pos.x, ny = pos.y, na = "middle";
+        if (p.side === "left")   { nx = pos.x - 9; na = "end"; }
+        if (p.side === "right")  { nx = pos.x + 9; na = "start"; }
+        if (p.side === "top")    { ny = pos.y - 10; }
+        if (p.side === "bottom") { ny = pos.y + 13; }
+        nt.setAttribute("x", nx); nt.setAttribute("y", ny);
+        nt.setAttribute("text-anchor", na); nt.setAttribute("dominant-baseline", "middle");
+        nt.setAttribute("fill", "#6b7784"); nt.setAttribute("font-size", "8.5");
+        nt.setAttribute("font-family", "var(--mono)"); nt.setAttribute("pointer-events", "none");
+        nt.textContent = p.num;
+        g.appendChild(nt);
+      }
     }
     compLayer.appendChild(g);
   }
@@ -911,9 +928,26 @@ function renderEditor() {
 
   for (const p of c.pins) {
     const row = document.createElement("div"); row.className = "pin-row";
+    const num = document.createElement("input");
+    num.type = "text"; num.value = p.num || ""; num.placeholder = "#"; num.className = "pin-mono";
+    num.title = "Physical pin number (optional)";
+    num.style.cssText = "width:34px;flex:0 0 34px;text-align:center;";
+    num.oninput = () => { p.num = num.value.trim(); renderBoard(); };
     const name = document.createElement("input");
     name.type = "text"; name.value = p.name; name.className = "pin-mono";
     name.oninput = () => { p.name = name.value; renderBoard(); renderWireList(); };
+    const movePin = (dir) => {
+      const same = c.pins.filter(x => x.side === p.side);
+      const k = same.indexOf(p), target = same[k + dir];
+      if (!target) return;
+      const i1 = c.pins.indexOf(p), i2 = c.pins.indexOf(target);
+      c.pins[i1] = target; c.pins[i2] = p;
+      renderAll();
+    };
+    const up = document.createElement("button"); up.className = "tiny"; up.textContent = "↑";
+    up.title = "Move earlier on this side"; up.onclick = () => movePin(-1);
+    const dn = document.createElement("button"); dn.className = "tiny"; dn.textContent = "↓";
+    dn.title = "Move later on this side"; dn.onclick = () => movePin(1);
     const side = document.createElement("select");
     for (const s of ["top", "right", "bottom", "left"]) {
       const o = document.createElement("option"); o.value = s; o.textContent = s;
@@ -922,7 +956,8 @@ function renderEditor() {
     side.onchange = () => { p.side = side.value; renderBoard(); };
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
     del.onclick = () => { deletePin(c, p.id); };
-    row.appendChild(name); row.appendChild(side); row.appendChild(del);
+    row.appendChild(num); row.appendChild(name); row.appendChild(side);
+    row.appendChild(up); row.appendChild(dn); row.appendChild(del);
     ed.appendChild(row);
 
     // connect dropdown + existing connections
@@ -1478,11 +1513,22 @@ const PARTS = [
   { cat: "Components", name: "HC-SR04", w: 150, bottom: ["VCC","TRIG","ECHO","GND"] },
   { cat: "Components", name: "DHT11", w: 120, bottom: ["VCC","DATA","GND"] },
   { cat: "Components", name: "Buzzer", w: 96, left: ["+","−"] },
+  { cat: "Components", name: "Capacitor (ceramic)", w: 120, left: ["A"], right: ["B"] },
+  { cat: "Components", name: "Capacitor (electrolytic)", w: 140, left: ["+"], right: ["−"] },
+  { cat: "Components", name: "Diode", w: 120, left: ["anode"], right: ["cathode"] },
+  { cat: "Components", name: "Switch (SPST)", w: 120, left: ["1"], right: ["2"] },
+  { cat: "Components", name: "Fuse", w: 120, left: ["1"], right: ["2"] },
 
   // Shelley Skelley — pins and names match Verified Wire Labels v30 (20260715)
   { cat: "Shelley Skelley", name: "Pico 2 W / Treedix", w: 200,
-    left:  ["VSYS (39)","3V3 OUT (36)","GND (38)","GND (3)","GND (18)","GND (23)","GND (28)"],
-    right: ["GP00 TX","GP01 RX","GP04 SDA","GP05 SCL","GP09","GP10","GP11","GP12","GP13","GP14","GP15","GP16","GP17","GP18","GP19","GP20","GP21","GP22"] },
+    left:  [{name:"VSYS",num:"39"},{name:"3V3 OUT",num:"36"},{name:"GND",num:"38"},
+            {name:"GND",num:"3"},{name:"GND",num:"18"},{name:"GND",num:"23"},{name:"GND",num:"28"}],
+    right: [{name:"GP00 TX",num:"1"},{name:"GP01 RX",num:"2"},{name:"GP04 SDA",num:"6"},
+            {name:"GP05 SCL",num:"7"},{name:"GP09",num:"12"},{name:"GP10",num:"14"},
+            {name:"GP11",num:"15"},{name:"GP12",num:"16"},{name:"GP13",num:"17"},
+            {name:"GP14",num:"19"},{name:"GP15",num:"20"},{name:"GP16",num:"21"},
+            {name:"GP17",num:"22"},{name:"GP18",num:"24"},{name:"GP19",num:"25"},
+            {name:"GP20",num:"26"},{name:"GP21",num:"27"},{name:"GP22",num:"29"}] },
   { cat: "Shelley Skelley", name: "PCA9685 (servo driver)", w: 165,
     left:  ["V+","GND","VCC","SDA","SCL"],
     right: ["CH0","CH1"] },
@@ -1493,7 +1539,8 @@ const PARTS = [
     left:  ["3V","GND"],
     right: ["DO / MISO","CS","CLK / SCK","DI / MOSI","CD"] },
   { cat: "Shelley Skelley", name: "LD2410C radar (H1)", w: 175,
-    left:  ["H1-1 VCC","H1-2 GND","H1-3 TX","H1-4 RX","H1-5 OUT","H1-6 (empty)"] },
+    left:  [{name:"VCC",num:"H1-1"},{name:"GND",num:"H1-2"},{name:"TX",num:"H1-3"},
+            {name:"RX",num:"H1-4"},{name:"OUT",num:"H1-5"},{name:"— empty —",num:"H1-6"}] },
   { cat: "Shelley Skelley", name: "Eye 1 (GC9A01)", w: 170,
     left:  ["VCC","GND"],
     right: ["SCL / SCK","SDA / MOSI","DC","RST","CS"] },
@@ -1506,6 +1553,7 @@ const PARTS = [
     left:  ["BARREL −","PICO GND-38","PCA GND","AMP GND"] },
   { cat: "Shelley Skelley", name: "3V3 DISTRIBUTION", w: 195,
     left:  ["PICO 3V3","EYE1 VCC","EYE2 VCC","SD 3V","PCA VCC"] },
+  { cat: "Shelley Skelley", name: "470uF 16V cap", w: 150, left: ["+"], right: ["−"] },
   { cat: "Shelley Skelley", name: "Barrel adapter (5V 3A)", w: 155,
     left:  ["+","−"] },
   { cat: "Shelley Skelley", name: "Speaker", w: 120,
@@ -1516,7 +1564,10 @@ const PARTS = [
 
 function partPins(p) {
   const pins = [];
-  const add = (arr, side) => (arr || []).forEach(n => pins.push({ id: uid("pin"), name: n, side }));
+  const add = (arr, side) => (arr || []).forEach(n => {
+    const o = (typeof n === "string") ? { name: n } : n;
+    pins.push({ id: uid("pin"), name: o.name, num: o.num || "", side });
+  });
   add(p.left, "left"); add(p.right, "right"); add(p.top, "top"); add(p.bottom, "bottom");
   return pins;
 }
