@@ -78,9 +78,14 @@ iterations so history stays in one place — no file renaming needed.
 
 ### v1.4
 - Wires that want the same channel are now assigned parallel lanes instead of
-  stacking on identical paths. On a seven-wire test layout the worst-buried
-  wire went from 89% hidden to 11%; escape runs and the vertical drop into a
-  board each get their own lane.
+  stacking on identical paths. A wire's horizontal run and vertical run are
+  laned independently, so two wires heading for the same board no longer share
+  a drop. On a seven-wire test layout the worst-buried wire went from 89%
+  hidden to 11%.
+- Tidy routing is now strictly right-angled. Offsets move a whole channel line
+  rather than a single corner, and a corner too tight to round keeps its hard
+  right angle instead of being dropped — that omission was joining its two
+  neighbours with a diagonal.
 
 ### v1.3
 - Component labels moved to the top of each block with a divider rule, and now

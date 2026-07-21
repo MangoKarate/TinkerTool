@@ -372,7 +372,15 @@ function escapePts(pt, side, comp, targetX) {
 }
 
 // Turn a polyline into a path with small rounded corners: straight runs, gentle turns.
-function roundedPath(pts, r) {
+function roundedPath(raw, r) {
+  // Drop repeated points first: a zero-length segment used to make the corner
+  // loop skip a vertex entirely, which joined the two neighbours with a
+  // diagonal instead of a right angle.
+  const pts = [];
+  for (const q of raw) {
+    const prev = pts[pts.length - 1];
+    if (!prev || Math.abs(prev.x - q.x) > 0.01 || Math.abs(prev.y - q.y) > 0.01) pts.push(q);
+  }
   if (pts.length < 3) return "M " + pts.map(q => q.x + " " + q.y).join(" L ");
   let d = "M " + pts[0].x + " " + pts[0].y;
   for (let i = 1; i < pts.length - 1; i++) {
@@ -380,7 +388,8 @@ function roundedPath(pts, r) {
     const v1 = { x: p1.x - p0.x, y: p1.y - p0.y };
     const v2 = { x: p2.x - p1.x, y: p2.y - p1.y };
     const l1 = Math.hypot(v1.x, v1.y), l2 = Math.hypot(v2.x, v2.y);
-    if (l1 < 0.5 || l2 < 0.5) continue;
+    // Too tight to round: keep the hard corner rather than dropping the vertex.
+    if (l1 < 0.5 || l2 < 0.5) { d += " L " + p1.x + " " + p1.y; continue; }
     const rr = Math.min(r, l1 / 2, l2 / 2);
     const s1 = { x: p1.x - v1.x / l1 * rr, y: p1.y - v1.y / l1 * rr };
     const e1 = { x: p1.x + v2.x / l2 * rr, y: p1.y + v2.y / l2 * rr };
@@ -390,25 +399,28 @@ function roundedPath(pts, r) {
   return d + " L " + last.x + " " + last.y;
 }
 
-// Returns { d, key, sort }. `key` names the channel this wire would occupy, so
-// renderBoard can fan everything sharing a channel into parallel lanes instead
-// of stacking identical paths on top of each other.
-function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, laneIdx, laneCount) {
+// Returns { d, hKey, vKey, hSort, vSort }. A wire occupies up to two channels —
+// one horizontal run and one vertical run — so both are named and lane-assigned
+// independently. Every segment is axis-aligned: offsets always move a whole
+// channel line, never a single corner, which is what used to tilt a segment.
+function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
   const na = SIDE_NORMAL[aSide], nb = SIDE_NORMAL[bSide];
   const m = mode || state.routing || "tidy";
   const bx = (bend && bend.x) || 0, by = (bend && bend.y) || 0;
-  const idx = laneIdx || 0, cnt = laneCount || 1;
-  const centred = (idx - (cnt - 1) / 2) * WIRE_LANE;   // channels fan both ways
-  const outward = idx * WIRE_LANE;                     // escapes only fan away
+  const L = lanes || {};
+  const hL = L.h || { i: 0, n: 1 }, vL = L.v || { i: 0, n: 1 };
+  const hCentred = (hL.i - (hL.n - 1) / 2) * WIRE_LANE;
+  const vCentred = (vL.i - (vL.n - 1) / 2) * WIRE_LANE;
+  const hOut = hL.i * WIRE_LANE, vOut = vL.i * WIRE_LANE;
   const pairKey = [ca && ca.id, cb && cb.id].sort().join("~");
 
   if (m === "curved") {
     const dist = Math.hypot(b.x - a.x, b.y - a.y);
-    const off = Math.min(Math.max(dist * 0.22, 22), 64) + outward;
+    const off = Math.min(Math.max(dist * 0.22, 22), 64) + hOut;
     const c1 = { x: a.x + na[0] * off + bx, y: a.y + na[1] * off + by };
     const c2 = { x: b.x + nb[0] * off + bx, y: b.y + nb[1] * off + by };
     return { d: "M " + a.x + " " + a.y + " C " + c1.x + " " + c1.y + ", " + c2.x + " " + c2.y + ", " + b.x + " " + b.y,
-             key: "curve:" + pairKey, sort: (a.y + b.y) / 2 };
+             hKey: "curve:" + pairKey, vKey: null, hSort: (a.y + b.y) / 2, vSort: 0 };
   }
 
   const p1 = { x: a.x + na[0] * WIRE_STUB, y: a.y + na[1] * WIRE_STUB };
@@ -417,68 +429,64 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, laneIdx, laneCount) {
   if (m === "direct") {
     const dx = p2.x - p1.x, dy = p2.y - p1.y, len = Math.hypot(dx, dy) || 1;
     const pts = [a, p1];
-    if (bx || by || centred) {
-      pts.push({ x: (p1.x + p2.x) / 2 + bx - dy / len * centred,
-                 y: (p1.y + p2.y) / 2 + by + dx / len * centred });
+    if (bx || by || hCentred) {
+      pts.push({ x: (p1.x + p2.x) / 2 + bx - dy / len * hCentred,
+                 y: (p1.y + p2.y) / 2 + by + dx / len * hCentred });
     }
     pts.push(p2, b);
-    return { d: roundedPath(pts, WIRE_RADIUS), key: "direct:" + pairKey, sort: (a.y + b.y) / 2 };
+    return { d: roundedPath(pts, WIRE_RADIUS), hKey: "direct:" + pairKey, vKey: null,
+             hSort: (a.y + b.y) / 2, vSort: 0 };
   }
 
-  // "tidy": right-angle routing that first steps clear of a board when a pin faces away
   const ea = escapePts(p1, aSide, ca, b.x);
   const eb = escapePts(p2, bSide, cb, a.x);
-  let key = null, sort = 0;
+  let hKey = null, vKey = null, hSort = 0, vSort = 0;
 
   if (ea.length) {
-    key = "ey:" + Math.round(ea[0].y / 4);
-    sort = (p1.x + p2.x) / 2;
-    ea[0] = { x: ea[0].x, y: ea[0].y + (ea[0].y < ca.y ? -outward : outward) };
-  } else if (eb.length) {
-    key = "ey:" + Math.round(eb[0].y / 4);
-    sort = (p1.x + p2.x) / 2;
-    eb[0] = { x: eb[0].x, y: eb[0].y + (eb[0].y < cb.y ? -outward : outward) };
+    const base = ea[0].y;
+    hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2;
+    ea[0] = { x: ea[0].x, y: base + (base < ca.y ? -hOut : hOut) + by };
+  }
+  if (eb.length) {
+    const base = eb[0].y;
+    if (!hKey) { hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2; }
+    eb[0] = { x: eb[0].x, y: base + (base < cb.y ? -hOut : hOut) };
   }
 
   const s1 = ea.length ? ea[ea.length - 1] : p1;
   const s2 = eb.length ? eb[eb.length - 1] : p2;
-  // After stepping clear of a board the wire is travelling vertically, so the
-  // next leg is horizontal regardless of which way the pin originally pointed.
-  const aHoriz = ea.length ? true : (na[0] !== 0);
-  const bHoriz = eb.length ? true : (nb[0] !== 0);
+  const leaveH = ea.length ? true : (na[0] !== 0);
+  const enterH = eb.length ? true : (nb[0] !== 0);
 
+  // Always a staircase (H,V,H or V,H,V). When an offset is zero the spare
+  // segment collapses to zero length and roundedPath drops it.
   const mid = [];
   if (ea.length || eb.length) {
-    // Hug the escape line: run clear of the board, then turn in. A mid-channel
-    // Z here would drop straight back through the board we just went around.
-    if (!eb.length) {
-      // Give the drop its own vertical lane too, otherwise every wire heading
-      // for this board falls down the same x and buries the ones underneath.
-      const cx = s2.x + nb[0] * outward;
-      mid.push({ x: cx, y: s1.y + by }, { x: cx, y: s2.y });
-    } else {
-      mid.push({ x: s2.x + bx, y: s1.y + by });
-    }
-  } else if (aHoriz && bHoriz) {
+    vKey = "vx:" + Math.round(s2.x / 4); vSort = (s1.y + s2.y) / 2;
+    const cx = s2.x + (eb.length ? 0 : nb[0] * vOut) + bx;
+    mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
+  } else if (leaveH && enterH) {
     const base = (s1.x + s2.x) / 2;
-    key = "vx:" + Math.round(base / 4); sort = (s1.y + s2.y) / 2;
-    const chX = base + bx + centred;
-    mid.push({ x: chX, y: s1.y }, { x: chX, y: s2.y });
-  } else if (!aHoriz && !bHoriz) {
+    vKey = "vx:" + Math.round(base / 4); vSort = (s1.y + s2.y) / 2;
+    const cx = base + bx + vCentred;
+    mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
+  } else if (!leaveH && !enterH) {
     const base = (s1.y + s2.y) / 2;
-    key = "hy:" + Math.round(base / 4); sort = (s1.x + s2.x) / 2;
-    const chY = base + by + centred;
-    mid.push({ x: s1.x, y: chY }, { x: s2.x, y: chY });
-  } else if (aHoriz) {
-    key = "el:" + Math.round(s2.x / 4) + "," + Math.round(s1.y / 4); sort = s1.y;
-    mid.push({ x: s2.x + bx + centred, y: s1.y + by });
+    hKey = "hy:" + Math.round(base / 4); hSort = (s1.x + s2.x) / 2;
+    const cy = base + by + hCentred;
+    mid.push({ x: s1.x, y: cy }, { x: s2.x, y: cy });
+  } else if (leaveH) {
+    vKey = "vx:" + Math.round(s2.x / 4); vSort = (s1.y + s2.y) / 2;
+    const cx = s2.x + bx + vCentred;
+    mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
   } else {
-    key = "el:" + Math.round(s1.x / 4) + "," + Math.round(s2.y / 4); sort = s1.x;
-    mid.push({ x: s1.x + bx, y: s2.y + by + centred });
+    hKey = "hy:" + Math.round(s2.y / 4); hSort = (s1.x + s2.x) / 2;
+    const cy = s2.y + by + hCentred;
+    mid.push({ x: s1.x, y: cy }, { x: s2.x, y: cy });
   }
 
   const pts = [a, p1].concat(ea, mid, eb.slice().reverse(), [p2, b]);
-  return { d: roundedPath(pts, WIRE_RADIUS), key: key || "misc:" + pairKey, sort: sort };
+  return { d: roundedPath(pts, WIRE_RADIUS), hKey: hKey, vKey: vKey, hSort: hSort, vSort: vSort };
 }
 
 // ---------- Coordinate conversion ----------
@@ -508,20 +516,24 @@ function renderBoard() {
     const a = findPin(w.from), b = findPin(w.to);
     if (!a || !b) continue;
     const pa = pinPos(a.comp, a.pin), pb = pinPos(b.comp, b.pin);
-    routes.push({ w, a, b, pa, pb, probe: wireRoute(pa, pb, a.pin.side, b.pin.side, w.route, w.bend, a.comp, b.comp, 0, 1) });
+    routes.push({ w, a, b, pa, pb, probe: wireRoute(pa, pb, a.pin.side, b.pin.side, w.route, w.bend, a.comp, b.comp, null) });
   }
-  const lanes = {};
-  for (const rt of routes) (lanes[rt.probe.key] = lanes[rt.probe.key] || []).push(rt);
-  for (const k in lanes) {
-    const g = lanes[k];
-    g.sort((m, n) => m.probe.sort - n.probe.sort || (m.w.id < n.w.id ? -1 : 1));
-    g.forEach((rt, n) => { rt.laneIdx = n; rt.laneCount = g.length; });
-  }
+  const assign = (keyName, sortName, slot) => {
+    const g = {};
+    for (const rt of routes) { const k = rt.probe[keyName]; if (k) (g[k] = g[k] || []).push(rt); }
+    for (const k in g) {
+      const arr = g[k];
+      arr.sort((m, n) => m.probe[sortName] - n.probe[sortName] || (m.w.id < n.w.id ? -1 : 1));
+      arr.forEach((rt, n) => { rt[slot] = { i: n, n: arr.length }; });
+    }
+  };
+  assign("hKey", "hSort", "hLane");
+  assign("vKey", "vSort", "vLane");
 
   for (const rt of routes) {
     const w = rt.w;
     const d = wireRoute(rt.pa, rt.pb, rt.a.pin.side, rt.b.pin.side, w.route, w.bend,
-                        rt.a.comp, rt.b.comp, rt.laneIdx, rt.laneCount).d;
+                        rt.a.comp, rt.b.comp, { h: rt.hLane, v: rt.vLane }).d;
     const shadow = document.createElementNS(SVGNS, "path");
     shadow.setAttribute("d", d);
     shadow.setAttribute("fill", "none");
