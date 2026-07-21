@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.1 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.2 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -29,6 +29,12 @@ from any device at your Pages URL.
   every wire's color is editable afterward.
 - **Canvas** — drag to move, drag empty space to pan, scroll to zoom, Fit to
   frame everything, Snap to align. Shift-click a wire to delete it fast.
+- **Notes** — the `✎ Note` button drops a callout bubble you can drag anywhere
+  and type into; use them to flag the details that bite you later. Notes travel
+  with the saved layout and appear on the printed report.
+- **Report** — the `Report` button opens a landscape blueprint sheet: the drawing
+  recolored for paper, a title block, a numbered wire schedule with colors, and
+  your notes. Print it or save it as a PDF.
 - **Save / Load** — export the whole layout to JSON and re-import it later.
 
 > Layouts save as downloaded JSON files, not in the browser — keep the exported
@@ -60,6 +66,15 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.2
+- Added note bubbles (`✎ Note`): draggable, auto-sizing callouts, saved with
+  the layout and included on the report.
+- Added the blueprint report (`Report`): landscape print sheet with title block,
+  wire schedule, and notes.
+- Added a Shelley Skelley parts category: 14 components matching Verified Wire
+  Labels v30, including the Pico 2 W / Treedix pin map and the three power
+  distribution junctions.
 
 ### v1.1
 - Added Parts library (`⊞ Parts`): 5 boards + 8 common components with correct

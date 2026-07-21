@@ -207,11 +207,12 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v1.1</span>
+      <span class="ver" id="verTag">v1.2</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
       <button class="primary" id="addComp">+ Component</button>
+      <button id="addNote">✎ Note</button>
       <button id="addLib">⊞ Parts</button>
     </div>
     <div class="spacer"></div>
@@ -227,6 +228,7 @@
     </label>
     <div class="tb-sep"></div>
     <div class="tb-group">
+      <button id="reportBtn" class="ghost">Report</button>
       <button id="saveBtn" class="ghost">Save</button>
       <button id="loadBtn" class="ghost">Load</button>
       <button id="clearBtn" class="ghost danger">Clear</button>
@@ -241,6 +243,7 @@
         <rect id="mat" x="-6000" y="-6000" width="12000" height="12000" fill="url(#gridPat)"></rect>
         <g id="wireLayer"></g>
         <g id="compLayer"></g>
+        <g id="noteLayer"></g>
       </g>
       <defs>
         <pattern id="gridPat" width="24" height="24" patternUnits="userSpaceOnUse">
@@ -273,6 +276,11 @@
       <div id="editor"></div>
     </div>
 
+    <div class="section" id="noteSection" style="display:none;">
+      <h2>Edit note</h2>
+      <div id="noteEditor"></div>
+    </div>
+
     <div class="section">
       <h2>Wires</h2>
       <div id="wireList"><div class="empty">No connections yet.</div></div>
@@ -287,7 +295,9 @@
 const state = {
   components: [],   // {id, x, y, w, h, label, pins:[{id,name,side}]}
   wires: [],        // {id, from, to, color}   (from/to = pinId)
+  notes: [],        // {id, x, y, w, text}
   selected: null,   // component id
+  selectedNote: null,
   armedPin: null,   // pinId
   color: "#d94141",
   view: { x: 220, y: 140, scale: 1 },
@@ -306,6 +316,7 @@ const svg = document.getElementById("board");
 const world = document.getElementById("world");
 const compLayer = document.getElementById("compLayer");
 const wireLayer = document.getElementById("wireLayer");
+const noteLayer = document.getElementById("noteLayer");
 const SVGNS = "http://www.w3.org/2000/svg";
 
 // ---------- Geometry ----------
@@ -469,6 +480,134 @@ function renderBoard() {
     }
     compLayer.appendChild(g);
   }
+
+  renderNotes();
+}
+
+// ---------- Notes ----------
+const NOTE_PAD = 10, NOTE_LH = 14, NOTE_FS = 11.5, NOTE_TAIL = 12;
+
+function wrapNote(text, wPx) {
+  const maxChars = Math.max(8, Math.floor((wPx - NOTE_PAD * 2) / (NOTE_FS * 0.55)));
+  const out = [];
+  for (const para of String(text == null ? "" : text).split("\n")) {
+    if (!para.trim()) { out.push(""); continue; }
+    let line = "";
+    for (const word of para.trim().split(/\s+/)) {
+      const t = line ? line + " " + word : word;
+      if (t.length > maxChars && line) { out.push(line); line = word; } else { line = t; }
+    }
+    if (line) out.push(line);
+  }
+  return out.length ? out : [""];
+}
+function noteHeight(n) {
+  return Math.max(34, wrapNote(n.text, n.w).length * NOTE_LH + NOTE_PAD * 2);
+}
+
+function renderNotes() {
+  noteLayer.innerHTML = "";
+  for (const n of state.notes) {
+    const lines = wrapNote(n.text, n.w);
+    const h = noteHeight(n);
+    const sel = n.id === state.selectedNote;
+    const edge = sel ? "var(--accent)" : "#c3ab72";
+    const g = document.createElementNS(SVGNS, "g");
+    g.dataset.note = n.id;
+
+    const box = document.createElementNS(SVGNS, "rect");
+    box.setAttribute("x", n.x); box.setAttribute("y", n.y);
+    box.setAttribute("width", n.w); box.setAttribute("height", h);
+    box.setAttribute("rx", "10");
+    box.setAttribute("fill", "#fdf3d7");
+    box.setAttribute("stroke", edge);
+    box.setAttribute("stroke-width", sel ? "2" : "1.2");
+    box.style.cursor = "grab";
+    box.dataset.noteBody = n.id;
+    g.appendChild(box);
+
+    // tail: fill first (hides the box's bottom stroke), then the two slanted edges only
+    const tx = n.x + 20, ty = n.y + h;
+    const tailFill = document.createElementNS(SVGNS, "path");
+    tailFill.setAttribute("d", `M${tx} ${ty - 2} L${tx} ${ty + NOTE_TAIL} L${tx + 15} ${ty - 2} Z`);
+    tailFill.setAttribute("fill", "#fdf3d7");
+    tailFill.setAttribute("pointer-events", "none");
+    g.appendChild(tailFill);
+    const tailEdge = document.createElementNS(SVGNS, "path");
+    tailEdge.setAttribute("d", `M${tx} ${ty} L${tx} ${ty + NOTE_TAIL} L${tx + 15} ${ty}`);
+    tailEdge.setAttribute("fill", "none");
+    tailEdge.setAttribute("stroke", edge);
+    tailEdge.setAttribute("stroke-width", sel ? "2" : "1.2");
+    tailEdge.setAttribute("stroke-linejoin", "round");
+    tailEdge.setAttribute("pointer-events", "none");
+    g.appendChild(tailEdge);
+
+    const t = document.createElementNS(SVGNS, "text");
+    t.setAttribute("y", n.y + NOTE_PAD + 9);
+    t.setAttribute("fill", "#4a4128");
+    t.setAttribute("font-size", NOTE_FS);
+    t.setAttribute("font-family", "var(--sans)");
+    t.setAttribute("pointer-events", "none");
+    lines.forEach((ln, i) => {
+      const ts = document.createElementNS(SVGNS, "tspan");
+      ts.setAttribute("x", n.x + NOTE_PAD);
+      ts.setAttribute("dy", i === 0 ? 0 : NOTE_LH);
+      ts.textContent = ln === "" ? " " : ln;
+      t.appendChild(ts);
+    });
+    g.appendChild(t);
+    noteLayer.appendChild(g);
+  }
+}
+
+function addNote() {
+  const w = 200;
+  const pos = spawnXY(w, 60);
+  const n = { id: uid("n"), x: pos.x, y: pos.y, w, text: "New note — edit the text in the side panel." };
+  state.notes.push(n);
+  state.selectedNote = n.id;
+  state.selected = null;
+  renderAll();
+}
+
+function renderNoteEditor() {
+  const sec = document.getElementById("noteSection");
+  const host = document.getElementById("noteEditor");
+  const n = state.notes.find(x => x.id === state.selectedNote);
+  if (!n) { sec.style.display = "none"; host.innerHTML = ""; return; }
+  sec.style.display = "";
+  host.innerHTML = "";
+
+  const ta = document.createElement("textarea");
+  ta.value = n.text;
+  ta.rows = 4;
+  ta.style.cssText = "width:100%; resize:vertical; font-family:var(--sans); font-size:12px;";
+  ta.oninput = () => { n.text = ta.value; renderBoard(); };
+  host.appendChild(ta);
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.cssText = "margin-top:8px; gap:8px; align-items:center;";
+  const lab = document.createElement("span");
+  lab.textContent = "Width";
+  lab.style.cssText = "font-size:11px; color:var(--ink-mut);";
+  const wIn = document.createElement("input");
+  wIn.type = "number"; wIn.value = n.w; wIn.min = 120; wIn.max = 460;
+  wIn.style.flex = "1";
+  wIn.oninput = () => { n.w = clampNum(wIn.value, 120, 460); renderBoard(); };
+  row.appendChild(lab); row.appendChild(wIn);
+  host.appendChild(row);
+
+  const del = document.createElement("button");
+  del.className = "ghost danger";
+  del.textContent = "Delete note";
+  del.style.marginTop = "8px";
+  del.onclick = () => {
+    state.notes = state.notes.filter(x => x.id !== n.id);
+    state.selectedNote = null;
+    renderAll();
+  };
+  host.appendChild(del);
 }
 
 // ---------- Render: panel ----------
@@ -665,7 +804,7 @@ function deleteComponent(id) {
   renderAll();
 }
 
-function renderAll() { renderBoard(); renderPanel(); updateArmBanner(); }
+function renderAll() { renderBoard(); renderPanel(); renderNoteEditor(); updateArmBanner(); }
 function updateArmBanner() {
   const b = document.getElementById("armBanner");
   if (state.armedPin) {
@@ -703,7 +842,18 @@ svg.addEventListener("pointerdown", (e) => {
   const pinEl = e.target.closest("[data-pin]");
   const wireEl = e.target.closest("[data-wire]");
   const bodyEl = e.target.closest("[data-body]");
+  const noteEl = e.target.closest("[data-note-body]");
 
+  if (noteEl) {
+    const n = state.notes.find(x => x.id === noteEl.dataset.noteBody);
+    state.selectedNote = n.id;
+    state.selected = null;
+    const w = toWorld(e.clientX, e.clientY);
+    drag = { type: "note", id: n.id, dx: w.x - n.x, dy: w.y - n.y, moved: false };
+    svg.setPointerCapture(e.pointerId);
+    renderAll();
+    return;
+  }
   if (pinEl) {
     handlePinClick(pinEl.dataset.pin);
     e.preventDefault();
@@ -717,6 +867,7 @@ svg.addEventListener("pointerdown", (e) => {
   if (bodyEl) {
     const c = state.components.find(c => c.id === bodyEl.dataset.body);
     state.selected = c.id;
+    state.selectedNote = null;
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false };
     svg.setPointerCapture(e.pointerId);
@@ -737,6 +888,12 @@ svg.addEventListener("pointermove", (e) => {
     c.x = snap(w.x - drag.dx); c.y = snap(w.y - drag.dy);
     drag.moved = true;
     renderBoard();
+  } else if (drag.type === "note") {
+    const w = toWorld(e.clientX, e.clientY);
+    const n = state.notes.find(x => x.id === drag.id);
+    n.x = snap(w.x - drag.dx); n.y = snap(w.y - drag.dy);
+    drag.moved = true;
+    renderBoard();
   } else if (drag.type === "pan") {
     state.view.x = drag.ox + (e.clientX - drag.sx);
     state.view.y = drag.oy + (e.clientY - drag.sy);
@@ -748,7 +905,7 @@ svg.addEventListener("pointermove", (e) => {
 svg.addEventListener("pointerup", (e) => {
   if (drag && drag.type === "pan" && !drag.moved) {
     // clicked empty -> deselect & disarm
-    state.selected = null; state.armedPin = null; renderAll();
+    state.selected = null; state.selectedNote = null; state.armedPin = null; renderAll();
   }
   svg.classList.remove("panning");
   drag = null;
@@ -786,7 +943,9 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- Toolbar ----------
 document.getElementById("addComp").onclick = addComponent;
+document.getElementById("addNote").onclick = addNote;
 document.getElementById("addLib").onclick = openLibrary;
+document.getElementById("reportBtn").onclick = buildReport;
 document.getElementById("zoomIn").onclick = () => zoomBy(1.2);
 document.getElementById("zoomOut").onclick = () => zoomBy(1 / 1.2);
 document.getElementById("zoomFit").onclick = fitView;
@@ -799,26 +958,34 @@ function zoomBy(f) {
   state.view.x = cx - wx * ns; state.view.y = cy - wy * ns; state.view.scale = ns;
   applyView();
 }
-function fitView() {
-  if (!state.components.length) { state.view = { x: 220, y: 140, scale: 1 }; applyView(); return; }
+function contentBounds() {
+  const boxes = [];
+  for (const c of state.components) boxes.push([c.x, c.y, c.x + c.w, c.y + c.h]);
+  for (const n of state.notes) boxes.push([n.x, n.y, n.x + n.w, n.y + noteHeight(n) + NOTE_TAIL]);
+  if (!boxes.length) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const c of state.components) {
-    minX = Math.min(minX, c.x); minY = Math.min(minY, c.y);
-    maxX = Math.max(maxX, c.x + c.w); maxY = Math.max(maxY, c.y + c.h);
+  for (const b of boxes) {
+    minX = Math.min(minX, b[0]); minY = Math.min(minY, b[1]);
+    maxX = Math.max(maxX, b[2]); maxY = Math.max(maxY, b[3]);
   }
+  return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+}
+function fitView() {
+  const b = contentBounds();
+  if (!b) { state.view = { x: 220, y: 140, scale: 1 }; applyView(); return; }
   const pad = 80;
   const r = svg.getBoundingClientRect();
   const scale = Math.min(3, Math.max(0.25,
-    Math.min(r.width / (maxX - minX + pad * 2), r.height / (maxY - minY + pad * 2))));
+    Math.min(r.width / (b.w + pad * 2), r.height / (b.h + pad * 2))));
   state.view.scale = scale;
-  state.view.x = (r.width - (maxX - minX) * scale) / 2 - minX * scale;
-  state.view.y = (r.height - (maxY - minY) * scale) / 2 - minY * scale;
+  state.view.x = (r.width - b.w * scale) / 2 - b.minX * scale;
+  state.view.y = (r.height - b.h * scale) / 2 - b.minY * scale;
   applyView();
 }
 
 // save / load
 document.getElementById("saveBtn").onclick = () => {
-  const data = JSON.stringify({ components: state.components, wires: state.wires, seq: state.seq }, null, 2);
+  const data = JSON.stringify({ components: state.components, wires: state.wires, notes: state.notes, seq: state.seq }, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -835,8 +1002,9 @@ document.getElementById("fileInput").onchange = (e) => {
       const d = JSON.parse(reader.result);
       state.components = d.components || [];
       state.wires = d.wires || [];
+      state.notes = d.notes || [];
       state.seq = d.seq || 1000;
-      state.selected = null; state.armedPin = null;
+      state.selected = null; state.selectedNote = null; state.armedPin = null;
       renderAll(); fitView();
     } catch (err) { alert("Could not read that file — is it a saved layout?"); }
   };
@@ -844,12 +1012,126 @@ document.getElementById("fileInput").onchange = (e) => {
   e.target.value = "";
 };
 document.getElementById("clearBtn").onclick = () => {
-  if (!state.components.length && !state.wires.length) return;
+  if (!state.components.length && !state.wires.length && !state.notes.length) return;
   if (confirm("Clear the whole board?")) {
-    state.components = []; state.wires = []; state.selected = null; state.armedPin = null;
+    state.components = []; state.wires = []; state.notes = [];
+    state.selected = null; state.selectedNote = null; state.armedPin = null;
     renderAll();
   }
 };
+
+// ---------- Blueprint report ----------
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function colorName(hex) {
+  const m = WIRE_COLORS.find(c => c[1].toLowerCase() === String(hex).toLowerCase());
+  return m ? m[0] : hex;
+}
+
+function buildReport() {
+  const b = contentBounds();
+  if (!b) { alert("Add some components before printing a blueprint."); return; }
+
+  // Render once with nothing selected so no highlight chrome ends up on the sheet
+  const keep = { sel: state.selected, note: state.selectedNote, arm: state.armedPin };
+  state.selected = null; state.selectedNote = null; state.armedPin = null;
+  renderBoard();
+  const clone = world.cloneNode(true);
+  state.selected = keep.sel; state.selectedNote = keep.note; state.armedPin = keep.arm;
+  renderBoard();
+
+  clone.removeAttribute("transform");
+  const mat = clone.querySelector("#mat"); if (mat) mat.remove();
+  clone.querySelectorAll("[data-pin]").forEach(el => el.remove());
+  clone.querySelectorAll("#wireLayer path").forEach(p => { if (!p.dataset.wire) p.remove(); });
+
+  const pad = 44;
+  const vb = [b.minX - pad, b.minY - pad, b.w + pad * 2, b.h + pad * 2].join(" ");
+  const drawing = '<svg class="dwg" viewBox="' + vb + '" xmlns="http://www.w3.org/2000/svg" ' +
+                  'preserveAspectRatio="xMidYMid meet">' + clone.innerHTML + '</svg>';
+
+  const rows = state.wires.map((w, i) => {
+    const a = findPin(w.from), z = findPin(w.to);
+    if (!a || !z) return "";
+    return '<tr><td class="n">' + (i + 1) + '</td><td>' + esc(a.comp.label) + '</td>' +
+           '<td class="pin">' + esc(a.pin.name) + '</td><td>' + esc(z.comp.label) + '</td>' +
+           '<td class="pin">' + esc(z.pin.name) + '</td><td class="col">' +
+           '<span class="sw" style="background:' + esc(w.color) + '"></span>' + esc(colorName(w.color)) +
+           '</td></tr>';
+  }).join("");
+
+  const notes = state.notes.length
+    ? '<ol class="notes">' + state.notes.map(n => '<li>' + esc(n.text) + '</li>').join("") + '</ol>'
+    : '<p class="none">No notes on this drawing.</p>';
+
+  const ver = (document.getElementById("verTag") || {}).textContent || "";
+  const today = new Date().toISOString().slice(0, 10);
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8">
+<title>Wiring Blueprint — ${esc(today)}</title>
+<style>
+  @page { size: landscape; margin: 10mm; }
+  :root { --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans: system-ui,-apple-system,"Segoe UI",sans-serif; --accent:#c9821f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#e8ecf1; font-family:var(--sans); color:#12222f; }
+  .bar { padding:10px 16px; background:#16324a; color:#fff; display:flex; gap:12px; align-items:center; }
+  .bar button { font:inherit; padding:6px 14px; border:0; border-radius:6px; background:var(--accent); color:#241300; font-weight:600; cursor:pointer; }
+  .bar span { font-size:12px; opacity:.85; }
+  .sheet { background:#fff; width:290mm; margin:14px auto; padding:6mm; box-shadow:0 2px 14px rgba(0,0,0,.18); }
+  .frame { border:2px solid #16324a; padding:5mm; }
+  .dwgwrap { display:flex; align-items:center; justify-content:center; border-bottom:1.5px solid #16324a; padding-bottom:4mm; }
+  svg.dwg { width:100%; height:108mm; }
+  svg.dwg #compLayer rect { fill:#ffffff !important; stroke:#16324a !important; stroke-width:1.3 !important; }
+  svg.dwg #compLayer text { fill:#16324a !important; }
+  svg.dwg #noteLayer rect { fill:#fffbe6 !important; stroke:#b08b34 !important; }
+  svg.dwg #noteLayer text { fill:#4a3d1c !important; }
+  svg.dwg #wireLayer path { stroke-width:2.4 !important; }
+  .title { display:flex; gap:0; margin-top:4mm; border:1.5px solid #16324a; }
+  .title div { padding:2.5mm 3mm; border-right:1px solid #16324a; font-size:10pt; }
+  .title div:last-child { border-right:0; }
+  .title .k { display:block; font-size:7pt; letter-spacing:.09em; text-transform:uppercase; color:#5b7183; margin-bottom:1mm; }
+  .title .grow { flex:1; }
+  [contenteditable] { outline:none; min-width:30mm; display:inline-block; }
+  [contenteditable]:focus { background:#fff6e2; }
+  h2 { font-size:9pt; letter-spacing:.12em; text-transform:uppercase; color:#5b7183; margin:5mm 0 2mm; }
+  table { width:100%; border-collapse:collapse; font-size:8.5pt; }
+  th { text-align:left; background:#eef2f6; border:1px solid #c3cfd9; padding:1.6mm 2mm; font-size:7.5pt; text-transform:uppercase; letter-spacing:.07em; color:#41586b; }
+  td { border:1px solid #d5dee5; padding:1.4mm 2mm; }
+  td.n { width:8mm; color:#7b8b99; text-align:right; }
+  td.pin { font-family:var(--mono); font-size:8pt; }
+  td.col { white-space:nowrap; }
+  .sw { display:inline-block; width:9px; height:9px; border-radius:2px; border:1px solid rgba(0,0,0,.35); margin-right:5px; vertical-align:-1px; }
+  .notes { margin:0; padding-left:6mm; font-size:9pt; }
+  .notes li { margin-bottom:1.4mm; }
+  .none { font-size:9pt; color:#7b8b99; margin:0; }
+  @media print { .bar { display:none; } body { background:#fff; } .sheet { width:auto; margin:0; padding:0; box-shadow:none; } }
+</style></head><body>
+<div class="bar"><button onclick="window.print()">Print / Save as PDF</button>
+<span>Landscape is preset. Click the title-block fields to fill them in before printing.</span></div>
+<div class="sheet"><div class="frame">
+  <div class="dwgwrap">${drawing}</div>
+  <div class="title">
+    <div class="grow"><span class="k">Project</span><span contenteditable>Untitled wiring diagram</span></div>
+    <div><span class="k">Drawn by</span><span contenteditable>&nbsp;</span></div>
+    <div><span class="k">Date</span>${esc(today)}</div>
+    <div><span class="k">Rev</span><span contenteditable>A</span></div>
+    <div><span class="k">Parts</span>${state.components.length}</div>
+    <div><span class="k">Wires</span>${state.wires.length}</div>
+    <div><span class="k">Tool</span>TinkerTool ${esc(ver)}</div>
+  </div>
+  <h2>Wire schedule</h2>
+  ${rows ? '<table><thead><tr><th></th><th>From</th><th>Pin</th><th>To</th><th>Pin</th><th>Color</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="none">No connections on this drawing.</p>'}
+  <h2>Notes</h2>
+  ${notes}
+</div></div></body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { alert("Your browser blocked the report window — allow pop-ups for TinkerTool and try again."); return; }
+  win.document.write(doc);
+  win.document.close();
+}
 
 // ---------- Parts library ----------
 const PARTS = [
@@ -876,7 +1158,41 @@ const PARTS = [
   { cat: "Components", name: "Servo (SG90)", w: 120, left: ["SIG","VCC","GND"] },
   { cat: "Components", name: "HC-SR04", w: 150, bottom: ["VCC","TRIG","ECHO","GND"] },
   { cat: "Components", name: "DHT11", w: 120, bottom: ["VCC","DATA","GND"] },
-  { cat: "Components", name: "Buzzer", w: 96, left: ["+","−"] }
+  { cat: "Components", name: "Buzzer", w: 96, left: ["+","−"] },
+
+  // Shelley Skelley — pins and names match Verified Wire Labels v30 (20260715)
+  { cat: "Shelley Skelley", name: "Pico 2 W / Treedix", w: 200,
+    left:  ["VSYS (39)","3V3 OUT (36)","GND (38)","GND (3)","GND (18)","GND (23)","GND (28)"],
+    right: ["GP00 TX","GP01 RX","GP04 SDA","GP05 SCL","GP09","GP10","GP11","GP12","GP13","GP14","GP15","GP16","GP17","GP18","GP19","GP20","GP21","GP22"] },
+  { cat: "Shelley Skelley", name: "PCA9685 (servo driver)", w: 165,
+    left:  ["V+","GND","VCC","SDA","SCL"],
+    right: ["CH0","CH1"] },
+  { cat: "Shelley Skelley", name: "MAX98357A (amp)", w: 165,
+    left:  ["VIN","GND","BCLK","LRC / WS","DIN"],
+    right: ["OUT+","OUT−"] },
+  { cat: "Shelley Skelley", name: "microSD breakout", w: 165,
+    left:  ["3V","GND"],
+    right: ["DO / MISO","CS","CLK / SCK","DI / MOSI","CD"] },
+  { cat: "Shelley Skelley", name: "LD2410C radar (H1)", w: 175,
+    left:  ["H1-1 VCC","H1-2 GND","H1-3 TX","H1-4 RX","H1-5 OUT","H1-6 (empty)"] },
+  { cat: "Shelley Skelley", name: "Eye 1 (GC9A01)", w: 170,
+    left:  ["VCC","GND"],
+    right: ["SCL / SCK","SDA / MOSI","DC","RST","CS"] },
+  { cat: "Shelley Skelley", name: "Eye 2 (GC9A01)", w: 170,
+    left:  ["VCC","GND"],
+    right: ["SCL / SCK","SDA / MOSI","DC","RST","CS"] },
+  { cat: "Shelley Skelley", name: "5V DISTRIBUTION", w: 195,
+    left:  ["BARREL +","PICO VSYS","PCA V+","AMP VIN","RAD VCC (H1-1)"] },
+  { cat: "Shelley Skelley", name: "MAIN GROUND", w: 195,
+    left:  ["BARREL −","PICO GND-38","PCA GND","AMP GND"] },
+  { cat: "Shelley Skelley", name: "3V3 DISTRIBUTION", w: 195,
+    left:  ["PICO 3V3","EYE1 VCC","EYE2 VCC","SD 3V","PCA VCC"] },
+  { cat: "Shelley Skelley", name: "Barrel adapter (5V 3A)", w: 155,
+    left:  ["+","−"] },
+  { cat: "Shelley Skelley", name: "Speaker", w: 120,
+    left:  ["+","−"] },
+  { cat: "Shelley Skelley", name: "Head servo", w: 140, left: ["3-wire plug"] },
+  { cat: "Shelley Skelley", name: "Jaw servo", w: 140, left: ["3-wire plug"] }
 ];
 
 function partPins(p) {
