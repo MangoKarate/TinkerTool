@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.4 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.5 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -142,6 +142,12 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.5
+- The printed drawing keeps its title block on the same page. The page break
+  came immediately after the drawing, so page one carried no project, date,
+  revision or wire count — the one sheet most likely to reach a bench was the
+  one that could not identify itself.
 
 ### v2.4
 - Loading is atomic. A file that is not a layout, or was saved by a newer

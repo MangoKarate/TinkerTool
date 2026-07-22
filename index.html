@@ -216,7 +216,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.4</span>
+      <span class="ver" id="verTag">v2.5</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -2327,6 +2327,7 @@ function buildReport() {
       '<span>Landscape is preset. Click the title-block fields to fill them in before printing.</span>' +
     '</div>' +
     '<div class="sheet"><div class="frame">' +
+      '<div class="sheet1">' +
       '<div class="dwgwrap">' + drawing + '</div>' +
       '<div class="title">' +
         '<div class="grow"><span class="k">Project</span><span contenteditable>Untitled wiring diagram</span></div>' +
@@ -2336,6 +2337,7 @@ function buildReport() {
         '<div><span class="k">Parts</span>' + state.components.length + '</div>' +
         '<div><span class="k">Wires</span>' + state.wires.length + '</div>' +
         '<div><span class="k">Tool</span>TinkerTool ' + esc(ver2) + '</div>' +
+      '</div>' +
       '</div>' +
       '<h2>Wire schedule</h2>' +
       (rows
@@ -2409,7 +2411,10 @@ const REPORT_CSS = `
   .app { display:none !important; }
   /* A 47-row schedule always spans pages: keep the drawing on its own sheet,
      repeat the header, and never split a row, a note or a heading. */
-  #reportOverlay .dwgwrap { break-after:page; page-break-after:always; }
+  /* The drawing and its title block are one sheet: break after the pair, so
+     page 1 identifies itself. */
+  #reportOverlay .sheet1 { break-after:page; page-break-after:always;
+                           break-inside:avoid; page-break-inside:avoid; }
   #reportOverlay thead { display:table-header-group; }
   #reportOverlay tr, #reportOverlay .notes li { break-inside:avoid; page-break-inside:avoid; }
   #reportOverlay h2 { break-after:avoid; page-break-after:avoid; }
