@@ -77,15 +77,26 @@ from any device at your Pages URL.
 
 ## Shelley Skelley
 
-`shelley-skelley-v30.json` is the finished wiring diagram for that build — 15
-parts, 47 wires, and the manifest's cautions as notes on the canvas. Open
-TinkerTool, click **Load**, and pick that file.
+`shelley-skelley-v31.json` is the finished wiring diagram for that build — 20
+parts, 52 wires, and the manifest's cautions as notes on the canvas. Open
+TinkerTool, click **Load**, and pick that file. Parts are drawn as silhouettes:
+the Pico and breakouts as modules, the eyes as displays, the distribution rails
+as terminal blocks, the servos, speaker, barrel jack and electrolytic as
+themselves.
+
+The five eye signals meet at real three-legged splices rather than terminating
+on Eye 1's connector: roughly 6in from each eye joins at a soldered junction,
+and a single pigtail carries the signal on to the Treedix. Only that pigtail
+carries a wire flag, which is why the flag count stays at 40 while the drawing
+holds 52 wires — the ten eye legs and the two capacitor leads are real but
+unflagged.
+
+`shelley-skelley-v30.json` is the earlier version, kept for reference.
 
 All 40 connections are checked against *Shelley Skelley Verified Wire Labels
 v30*, including the radar's UART crossover (radar TX to GP01, radar RX to GP00).
-The extra seven wires are the five unflagged Eye 2 legs into the Y-splices and
-the two leads of the 470uF decoupling cap. H1 position 6 is drawn and left
-deliberately unwired.
+H1 position 6 is drawn and left deliberately unwired — a structural check
+confirms it is the only unconnected pin of 103.
 
 ## Icon
 
