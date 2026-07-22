@@ -24,14 +24,14 @@ from any device at your Pages URL.
   obvious before you save. Parts are stored in this browser and can be edited or
   removed later. Saved layouts carry their own definitions, so they open whether
   or not the library has the part.
-- **Shapes** — `+ Component` draws parts as silhouettes rather than boxes:
-  DIP IC with its notch and pin-1 dot, module with mounting holes, display with
-  a bezel, screw terminal block, resistor with colour bands, electrolytic seen
-  from above or from the side, diode, LED with dome and flange, TO-220 with its
-  tab, TO-92, push button, potentiometer, servo with flanges, speaker, barrel
-  jack — plus plain rectangle, rounded, circle and a splice marker. Pins follow
-  the real outline, so an LED's pins sit on its flange and a TO-92's on its
-  curved back.
+- **Shapes** — `+ Component` draws parts as silhouettes rather than boxes: DIP
+  IC, module, display, screw terminal block, resistor, electrolytic seen from
+  above or from the side, diode, LED with dome and flange, TO-220 with its tab,
+  TO-92, push button, potentiometer, servo with flanges, speaker, barrel jack —
+  plus plain rectangle, rounded, circle and a splice marker. Pins follow the
+  real outline, so an LED's pins sit on its flange and a TO-92's on its curved
+  back. The outline is all there is: the inside of a block stays empty so pin
+  names and numbers own that space.
 - **Components** — adding one asks how many pins it has, unless the package
   fixes that already (a resistor has two leads and always will). Pins space
   themselves evenly and the block grows to hold them, so a 30-pin breakout is
@@ -172,6 +172,10 @@ iterations so history stays in one place — no file renaming needed.
   order is a property of the real part, not ours to change silently.
 - **Double-click a pin to edit it** where it sits: number, name, side, kind, or
   delete. Double-click a component to rename it.
+- **Nothing is drawn inside a block any more.** Cone rings, mounting holes,
+  bezels, screw heads and polarity bands competed with the pin names and numbers
+  for the same space. The outline identifies the part; what the marks encoded —
+  which end is the cathode, where pin 1 sits — the lead names now say outright.
 
 ### v2.5
 - The printed drawing keeps its title block on the same page. The page break
