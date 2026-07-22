@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.0 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.1 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -17,9 +17,13 @@ from any device at your Pages URL.
 
 ## What it does
 
-- **Parts library** — the `⊞ Parts` button drops in ready-made boards (Arduino
-  Uno / Nano, ESP32, ESP8266, Raspberry Pi 40-pin) and components (LED, resistor,
-  button, pot, servo, HC-SR04, DHT11, buzzer) with correct pin names and sides.
+- **Parts library** — starts empty on purpose. Build it up with `+ New part…`:
+  name the part, pick a shape, size and colour, then enter the pinout — one pin
+  at a time, a block of rows at once, or pasted straight from a datasheet. A live
+  preview draws the part as you type, so a wrong side or a missing number is
+  obvious before you save. Parts are stored in this browser and can be edited or
+  removed later. Saved layouts carry their own definitions, so they open whether
+  or not the library has the part.
 - **Shapes** — `+ Component` draws parts as silhouettes rather than boxes:
   DIP IC with its notch and pin-1 dot, module with mounting holes, display with
   a bezel, screw terminal block, resistor with colour bands, electrolytic seen
@@ -124,6 +128,21 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.1
+- Emptied the built-in parts library. Pinouts are being re-entered one at a
+  time and checked against datasheets; the earlier definitions remain in git
+  history, and saved layouts are unaffected because they carry their own.
+- Added a part builder: `+ New part…` in the library. Name, category, shape,
+  width, height and colour, plus a pin table that grows one row at a time, by a
+  block of rows, or by pasting a pinout. Each pin takes a number, a name and a
+  side, and rows can be reordered. A live preview renders the part with the same
+  geometry the canvas uses, so what you see is what you get. User parts can be
+  reopened and edited.
+- Fixed pin rows wrapping onto two lines — the grid still assumed three columns
+  per row after number and reorder controls were added in v1.5.
+- Escaped library category text, which was the injection sink left over from the
+  earlier pass (that fix had landed on the shape picker instead).
 
 ### v2.0
 - Added undo and redo (⌘Z / ⇧⌘Z), sixty steps deep.

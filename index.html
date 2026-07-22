@@ -143,9 +143,11 @@
 
   /* pin editor */
   .pin-row {
-    display: grid; grid-template-columns: 1fr 74px 26px; gap: 6px; align-items: center;
-    margin-bottom: 6px;
+    display: grid; grid-template-columns: 46px 1fr 72px 24px 24px 24px; gap: 5px;
+    align-items: center; margin-bottom: 6px;
   }
+  .pin-row > * { min-width: 0; }
+  .pin-row button.tiny { padding: 3px 0; text-align: center; }
   .pin-row .pin-mono { font-family: var(--mono); font-size: 12px; }
   .pin-conns { margin: 2px 0 10px; padding-left: 2px; }
   .conn-chip {
@@ -207,7 +209,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.0</span>
+      <span class="ver" id="verTag">v2.1</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -336,7 +338,8 @@ function selectOnly(kind, id) {
 function overlayOpen() {
   return !!document.getElementById("reportOverlay") ||
          !!(libEl && libEl.classList.contains("show")) ||
-         !!(shapeEl && shapeEl.classList.contains("show"));
+         !!(shapeEl && shapeEl.classList.contains("show")) ||
+         !!(builderEl && builderEl.classList.contains("show"));
 }
 // Which axis each wire's channel can actually slide along, filled in on render.
 const wireAxis = new Map();
@@ -1243,7 +1246,7 @@ function renderEditor() {
     const num = document.createElement("input");
     num.type = "text"; num.value = p.num || ""; num.placeholder = "#"; num.className = "pin-mono";
     num.title = "Physical pin number (optional)";
-    num.style.cssText = "width:34px;flex:0 0 34px;text-align:center;";
+    num.style.cssText = "width:100%;text-align:center;";
     num.oninput = () => { p.num = num.value.trim(); renderBoard(); markDirty(); };
     const name = document.createElement("input");
     name.type = "text"; name.value = p.name; name.className = "pin-mono";
@@ -1640,7 +1643,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault(); redo(); return;
   }
   if (e.key === "Escape") {
-    closeReport(); closeLibrary(); closeShapePicker();
+    closeReport(); closeLibrary(); closeShapePicker(); closePartBuilder();
     state.armedPin = null; renderAll();
     return;
   }
@@ -2067,80 +2070,303 @@ const REPORT_CSS = `
 }
 `;
 
+// ---------- Part builder ----------
+// Enter a part the way a datasheet gives it to you: identity and shape, then a
+// pin table you can grow one row at a time, in a block, or by pasting.
+let builderEl = null, draft = null, draftEditing = null;
+
+function blankDraft() {
+  return { name: "", cat: "My parts", shape: "board", w: 170, h: 0, color: "#1f3b4d", pins: [] };
+}
+function partToDraft(p) {
+  const pins = [];
+  for (const side of ["left", "right", "top", "bottom"]) {
+    for (const item of (p[side] || [])) {
+      const o = (typeof item === "string") ? { name: item } : item;
+      pins.push({ num: o.num || "", name: o.name || "", side: side });
+    }
+  }
+  return { name: p.name, cat: p.cat || "My parts", shape: p.shape || "rect",
+           w: p.w || 170, h: p.h || 0, color: p.color || "#1f3b4d", pins: pins };
+}
+function draftToPart(d) {
+  const part = { cat: (d.cat || "My parts").trim() || "My parts", name: d.name.trim(),
+                 w: clampNum(d.w, 40, 900), shape: d.shape, user: true,
+                 left: [], right: [], top: [], bottom: [] };
+  if (+d.h) part.h = clampNum(d.h, 40, 900);
+  if (d.color) part.color = d.color;
+  for (const pin of d.pins) {
+    if (!pin.name && !pin.num) continue;
+    part[pin.side].push(pin.num ? { name: pin.name, num: pin.num } : pin.name);
+  }
+  return part;
+}
+function draftToComp(d) {
+  const pins = d.pins.filter(p => p.name || p.num)
+    .map((p, i) => ({ id: "pv" + i, name: p.name, num: p.num, side: p.side }));
+  const sideMax = Math.max(pins.filter(p => p.side === "left").length,
+                           pins.filter(p => p.side === "right").length, 1);
+  const tbMax = Math.max(pins.filter(p => p.side === "top").length,
+                         pins.filter(p => p.side === "bottom").length, 0);
+  const h = +d.h || Math.max(70, sideMax * 24 + 26);
+  const w = Math.max(+d.w || 130, tbMax * 48 + 26);
+  return { id: "preview", x: 0, y: 0, w: w, h: h, label: d.name || "Untitled part",
+           shape: d.shape, color: d.color, pins: pins };
+}
+
+// Same geometry helpers the canvas uses, so the preview cannot drift from reality.
+function renderPartPreview(svgEl, c) {
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+  const pad = 62;
+  svgEl.setAttribute("viewBox", (-pad) + " " + (-pad) + " " + (c.w + pad * 2) + " " + (c.h + pad * 2));
+  const shape = c.shape || "rect";
+  const fill = c.color || "#1f3b4d", ink = readableInk(fill);
+  const mk = (t, at) => { const e = document.createElementNS(SVGNS, t);
+                          for (const k in at) e.setAttribute(k, at[k]); svgEl.appendChild(e); return e; };
+  if (shape === "circle" || shape === "ecap") {
+    mk("ellipse", { cx: c.w / 2, cy: c.h / 2, rx: c.w / 2, ry: c.h / 2, fill: fill, stroke: "#2c5468", "stroke-width": 1.5 });
+  } else if (SHAPE_PTS[shape]) {
+    mk("polygon", { points: SHAPE_PTS[shape].map(q => (q[0] * c.w) + "," + (q[1] * c.h)).join(" "),
+                    fill: fill, stroke: "#2c5468", "stroke-width": 1.5 });
+  } else {
+    const rxf = SHAPE_RX[shape];
+    mk("rect", { x: 0, y: 0, width: c.w, height: c.h, rx: rxf ? rxf * Math.min(c.w, c.h) : 8,
+                 fill: fill, stroke: "#2c5468", "stroke-width": 1.5 });
+  }
+  for (const m of shapeMarks(shape, { x: 0, y: 0, w: c.w, h: c.h }, ink)) mk(m[0], m[1]);
+  const wideTop = !SHAPE_CENTRE_LABEL[shape];
+  mk("text", { x: c.w / 2, y: wideTop ? 15 : c.h / 2, "text-anchor": "middle",
+               "dominant-baseline": "middle", fill: ink, "font-size": 12.5,
+               "font-family": "var(--mono)", "font-weight": 600 }).textContent = c.label;
+  for (const pn of c.pins) {
+    const pos = pinPos(c, pn);
+    mk("circle", { cx: pos.x, cy: pos.y, r: 5.5, fill: "#dcb968", stroke: "#14202a", "stroke-width": 1.5 });
+    let tx = pos.x, ty = pos.y, anchor = "middle";
+    if (pn.side === "left")  { tx = pos.x + 13; anchor = "start"; }
+    if (pn.side === "right") { tx = pos.x - 13; anchor = "end"; }
+    if (pn.side === "top")   { ty = pos.y + 13; }
+    if (pn.side === "bottom"){ ty = pos.y - 9; }
+    mk("text", { x: tx, y: ty, "text-anchor": anchor, "dominant-baseline": "middle",
+                 fill: ink, "fill-opacity": .72, "font-size": 9.5,
+                 "font-family": "var(--mono)" }).textContent = pn.name;
+    if (pn.num) {
+      let nx = pos.x, ny = pos.y, na = "middle";
+      if (pn.side === "left")   { nx = pos.x - 9; na = "end"; }
+      if (pn.side === "right")  { nx = pos.x + 9; na = "start"; }
+      if (pn.side === "top")    { ny = pos.y - 10; }
+      if (pn.side === "bottom") { ny = pos.y + 13; }
+      mk("text", { x: nx, y: ny, "text-anchor": na, "dominant-baseline": "middle",
+                   fill: "#6b7784", "font-size": 8.5, "font-family": "var(--mono)" }).textContent = pn.num;
+    }
+  }
+}
+
+function openPartBuilder(existing) {
+  draftEditing = existing ? existing.name : null;
+  draft = existing ? partToDraft(existing) : blankDraft();
+  if (!builderEl) buildBuilderShell();
+  fillBuilderFields();
+  renderPinRows();
+  builderEl.classList.add("show");
+  const n = builderEl.querySelector("#pbName"); if (n) n.focus();
+}
+function closePartBuilder() { if (builderEl) builderEl.classList.remove("show"); }
+
+function buildBuilderShell() {
+  builderEl = document.createElement("div");
+  builderEl.className = "lib-backdrop";
+  builderEl.innerHTML =
+    '<div class="lib-modal" style="max-width:820px;">' +
+      '<div class="lib-head"><h3 id="pbTitle">New part</h3>' +
+      '<button class="close" id="pbX">✕</button></div>' +
+      '<div class="lib-body">' +
+        '<div class="row" style="gap:8px;">' +
+          '<label class="fld" style="flex:2;"><span>Name</span><input id="pbName" type="text" placeholder="e.g. Pico 2 W / Treedix"></label>' +
+          '<label class="fld" style="flex:1;"><span>Category</span><input id="pbCat" type="text" placeholder="My parts"></label>' +
+        '</div>' +
+        '<div class="row" style="gap:8px; margin-top:8px;">' +
+          '<label class="fld" style="flex:2;"><span>Shape</span><select id="pbShape"></select></label>' +
+          '<label class="fld" style="flex:1;"><span>Width</span><input id="pbW" type="number" min="40" max="900"></label>' +
+          '<label class="fld" style="flex:1;"><span>Height (0 = auto)</span><input id="pbH" type="number" min="0" max="900"></label>' +
+          '<label class="fld" style="flex:0 0 62px;"><span>Colour</span><input id="pbColor" type="color"></label>' +
+        '</div>' +
+        '<div style="margin-top:10px; background:var(--chrome-2); border:1px solid var(--line); border-radius:8px; padding:8px;">' +
+          '<svg id="pbPreview" style="width:100%; height:190px; display:block;"></svg>' +
+        '</div>' +
+        '<div class="lib-cat" style="margin-top:12px;">Pins <span id="pbCount" style="color:var(--ink-mut);"></span></div>' +
+        '<div class="row" style="gap:8px; flex-wrap:wrap;">' +
+          '<button id="pbAddOne" class="tiny primary">+ Pin</button>' +
+          '<input id="pbBulkN" type="number" min="1" max="80" value="8" style="width:64px;">' +
+          '<button id="pbAddMany" class="tiny">Add rows</button>' +
+          '<select id="pbBulkSide" style="width:auto;"><option value="left">left</option><option value="right">right</option><option value="top">top</option><option value="bottom">bottom</option></select>' +
+          '<button id="pbPaste" class="tiny ghost">Paste pinout…</button>' +
+          '<button id="pbClearPins" class="tiny ghost danger">Clear pins</button>' +
+        '</div>' +
+        '<div id="pbPins" style="margin-top:8px; max-height:230px; overflow:auto;"></div>' +
+        '<div class="row" style="gap:8px; margin-top:14px; justify-content:flex-end;">' +
+          '<button id="pbCancel" class="ghost">Cancel</button>' +
+          '<button id="pbSave" class="primary">Save to library</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(builderEl);
+  builderEl.addEventListener("click", e => { if (e.target === builderEl) closePartBuilder(); });
+  builderEl.querySelector("#pbX").onclick = closePartBuilder;
+  builderEl.querySelector("#pbCancel").onclick = closePartBuilder;
+
+  const shapeSel = builderEl.querySelector("#pbShape");
+  for (const cat of [...new Set(SHAPES.map(sh => sh[3]))]) {
+    const g = document.createElement("optgroup"); g.label = cat;
+    for (const sh of SHAPES.filter(x => x[3] === cat)) {
+      const o = document.createElement("option"); o.value = sh[0]; o.textContent = sh[1] + " — " + sh[2];
+      g.appendChild(o);
+    }
+    shapeSel.appendChild(g);
+  }
+  const bind = (id, key, num) => {
+    const el = builderEl.querySelector(id);
+    el.oninput = el.onchange = () => { draft[key] = num ? +el.value : el.value; refreshPreview(); };
+  };
+  bind("#pbName", "name"); bind("#pbCat", "cat"); bind("#pbShape", "shape");
+  bind("#pbW", "w", true); bind("#pbH", "h", true); bind("#pbColor", "color");
+
+  builderEl.querySelector("#pbAddOne").onclick = () => {
+    draft.pins.push({ num: "", name: "", side: builderEl.querySelector("#pbBulkSide").value });
+    renderPinRows(true);
+  };
+  builderEl.querySelector("#pbAddMany").onclick = () => {
+    const n = clampNum(builderEl.querySelector("#pbBulkN").value, 1, 80);
+    const side = builderEl.querySelector("#pbBulkSide").value;
+    for (let i = 0; i < n; i++) draft.pins.push({ num: "", name: "", side: side });
+    renderPinRows(true);
+  };
+  builderEl.querySelector("#pbClearPins").onclick = () => {
+    if (draft.pins.length && confirm("Remove all " + draft.pins.length + " pins from this part?")) {
+      draft.pins = []; renderPinRows();
+    }
+  };
+  builderEl.querySelector("#pbPaste").onclick = pastePinout;
+  builderEl.querySelector("#pbSave").onclick = savePartFromBuilder;
+}
+
+function fillBuilderFields() {
+  builderEl.querySelector("#pbTitle").textContent = draftEditing ? "Edit part — " + draftEditing : "New part";
+  builderEl.querySelector("#pbName").value  = draft.name;
+  builderEl.querySelector("#pbCat").value   = draft.cat;
+  builderEl.querySelector("#pbShape").value = draft.shape;
+  builderEl.querySelector("#pbW").value     = draft.w;
+  builderEl.querySelector("#pbH").value     = draft.h || 0;
+  builderEl.querySelector("#pbColor").value = draft.color;
+}
+
+function renderPinRows(scrollToEnd) {
+  const host = builderEl.querySelector("#pbPins");
+  host.innerHTML = "";
+  builderEl.querySelector("#pbCount").textContent =
+    draft.pins.length ? "· " + draft.pins.length + " total" : "· none yet";
+  if (!draft.pins.length) {
+    const e = document.createElement("div"); e.className = "empty";
+    e.textContent = "No pins yet. Add one at a time, add a block of rows, or paste a pinout.";
+    host.appendChild(e);
+  }
+  draft.pins.forEach((pin, i) => {
+    const row = document.createElement("div"); row.className = "pin-row";
+    const num = document.createElement("input");
+    num.type = "text"; num.value = pin.num; num.placeholder = "#"; num.className = "pin-mono";
+    num.style.cssText = "width:100%;text-align:center;";
+    num.oninput = () => { pin.num = num.value.trim(); refreshPreview(); };
+    const name = document.createElement("input");
+    name.type = "text"; name.value = pin.name; name.placeholder = "pin name"; name.className = "pin-mono";
+    name.oninput = () => { pin.name = name.value; refreshPreview(); };
+    const side = document.createElement("select");
+    for (const sd of ["left", "right", "top", "bottom"]) {
+      const o = document.createElement("option"); o.value = sd; o.textContent = sd;
+      if (pin.side === sd) o.selected = true; side.appendChild(o);
+    }
+    side.onchange = () => { pin.side = side.value; refreshPreview(); };
+    const up = document.createElement("button"); up.className = "tiny"; up.textContent = "↑";
+    up.setAttribute("aria-label", "Move pin up");
+    up.onclick = () => { if (i > 0) { const t = draft.pins[i-1]; draft.pins[i-1] = pin; draft.pins[i] = t; renderPinRows(); } };
+    const dn = document.createElement("button"); dn.className = "tiny"; dn.textContent = "↓";
+    dn.setAttribute("aria-label", "Move pin down");
+    dn.onclick = () => { if (i < draft.pins.length-1) { const t = draft.pins[i+1]; draft.pins[i+1] = pin; draft.pins[i] = t; renderPinRows(); } };
+    const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
+    del.setAttribute("aria-label", "Delete this pin");
+    del.onclick = () => { draft.pins.splice(i, 1); renderPinRows(); };
+    row.appendChild(num); row.appendChild(name); row.appendChild(side);
+    row.appendChild(up); row.appendChild(dn); row.appendChild(del);
+    host.appendChild(row);
+  });
+  if (scrollToEnd) host.scrollTop = host.scrollHeight;
+  refreshPreview();
+}
+
+function refreshPreview() {
+  renderPartPreview(builderEl.querySelector("#pbPreview"), draftToComp(draft));
+}
+
+// Accepts "39 VSYS left", "39<tab>VSYS", "VSYS" — one pin per line.
+function pastePinout() {
+  const side = builderEl.querySelector("#pbBulkSide").value;
+  const raw = prompt(
+    "Paste one pin per line.\n\n" +
+    "  39  VSYS  left\n  36  3V3 OUT  left\n  1   GP00 TX  right\n\n" +
+    "Number and side are optional; anything without a side becomes \"" + side + "\".");
+  if (!raw) return;
+  let added = 0;
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const parts = t.split(/\t|\s{2,}|\s*,\s*/).map(x => x.trim()).filter(Boolean);
+    let num = "", name = "", sd = side;
+    if (parts.length >= 3 && ["left","right","top","bottom"].includes(parts[parts.length-1].toLowerCase())) {
+      sd = parts.pop().toLowerCase(); num = parts.shift(); name = parts.join(" ");
+    } else if (parts.length === 2 && ["left","right","top","bottom"].includes(parts[1].toLowerCase())) {
+      sd = parts[1].toLowerCase(); name = parts[0];
+    } else if (parts.length >= 2 && /^[\w.-]+$/.test(parts[0]) && /\d/.test(parts[0])) {
+      num = parts.shift(); name = parts.join(" ");
+    } else {
+      name = parts.join(" ");
+    }
+    if (!name && !num) continue;
+    draft.pins.push({ num: num, name: name, side: sd });
+    added++;
+  }
+  renderPinRows(true);
+  toast(added ? "Added " + added + " pin" + (added === 1 ? "" : "s") + " from the paste."
+              : "Nothing recognised in that paste.");
+}
+
+function savePartFromBuilder() {
+  const name = (draft.name || "").trim();
+  if (!name) { toast("Give the part a name first."); builderEl.querySelector("#pbName").focus(); return; }
+  const usable = draft.pins.filter(p => p.name || p.num);
+  if (!usable.length) { toast("Add at least one pin before saving."); return; }
+  const clash = USER_PARTS.findIndex(x => x.name === name);
+  if (clash >= 0 && name !== draftEditing) {
+    if (!confirm('"' + name + '" is already in your library. Replace it?')) return;
+  }
+  const part = draftToPart(draft);
+  if (draftEditing) {
+    const at = USER_PARTS.findIndex(x => x.name === draftEditing);
+    if (at >= 0) USER_PARTS[at] = part; else USER_PARTS.push(part);
+  } else if (clash >= 0) {
+    USER_PARTS[clash] = part;
+  } else {
+    USER_PARTS.push(part);
+  }
+  if (!saveUserParts()) { alert("Could not save — this browser is blocking local storage."); return; }
+  rebuildLibrary();
+  closePartBuilder();
+  toast('Saved "' + name + '" with ' + usable.length + " pin" + (usable.length === 1 ? "" : "s") + ".");
+}
+
 // ---------- Parts library ----------
-const PARTS = [
-  { cat: "Boards", name: "Arduino Uno", w: 150,
-    left:  ["VIN","GND","5V","3V3","A0","A1","A2","A3","A4","A5"],
-    right: ["D0","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13"] },
-  { cat: "Boards", name: "Arduino Nano", w: 140,
-    left:  ["VIN","GND","5V","3V3","A0","A1","A2","A3","A4","A5","A6","A7"],
-    right: ["D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13"] },
-  { cat: "Boards", name: "ESP32 DevKit", w: 160,
-    left:  ["3V3","GND","D15","D2","D4","D16","D17","D5","D18","D19","D21","RX0","TX0","D22","D23"],
-    right: ["VIN","GND","D13","D12","D14","D27","D26","D25","D33","D32","D35","D34","VN","VP","EN"] },
-  { cat: "Boards", name: "ESP8266 NodeMCU", w: 150,
-    left:  ["3V3","GND","TX","RX","D8","D7","D6","D5"],
-    right: ["VIN","GND","D0","D1","D2","D3","D4","SD2"] },
-  { cat: "Boards", name: "Raspberry Pi (40-pin)", w: 180,
-    left:  ["3V3","GPIO2 SDA","GPIO3 SCL","GPIO4","GND","GPIO17","GPIO27","GPIO22","3V3","GPIO10 MOSI","GPIO9 MISO","GPIO11 SCLK","GND","GPIO0","GPIO5","GPIO6","GPIO13","GPIO19","GPIO26","GND"],
-    right: ["5V","5V","GND","GPIO14 TXD","GPIO15 RXD","GPIO18","GND","GPIO23","GPIO24","GND","GPIO25","GPIO8 CE0","GPIO7 CE1","GPIO1","GND","GPIO12","GND","GPIO16","GPIO20","GPIO21"] },
-
-  { cat: "Components", name: "LED", w: 96,  left: ["anode"], right: ["cathode"] },
-  { cat: "Components", name: "Resistor", w: 112, left: ["A"], right: ["B"] },
-  { cat: "Components", name: "Push Button", w: 112, left: ["1a","1b"], right: ["2a","2b"] },
-  { cat: "Components", name: "Potentiometer", w: 132, bottom: ["GND","WIPER","VCC"] },
-  { cat: "Components", name: "Servo (SG90)", w: 120, left: ["SIG","VCC","GND"] },
-  { cat: "Components", name: "HC-SR04", w: 150, bottom: ["VCC","TRIG","ECHO","GND"] },
-  { cat: "Components", name: "DHT11", w: 120, bottom: ["VCC","DATA","GND"] },
-  { cat: "Components", name: "Buzzer", w: 96, left: ["+","−"] },
-  { cat: "Components", name: "Capacitor (ceramic)", w: 120, left: ["A"], right: ["B"] },
-  { cat: "Components", name: "Capacitor (electrolytic)", w: 140, left: ["+"], right: ["−"] },
-  { cat: "Components", name: "Diode", w: 120, left: ["anode"], right: ["cathode"] },
-  { cat: "Components", name: "Switch (SPST)", w: 120, left: ["1"], right: ["2"] },
-  { cat: "Components", name: "Fuse", w: 120, left: ["1"], right: ["2"] },
-
-  // Shelley Skelley — pins and names match Verified Wire Labels v30 (20260715)
-  { cat: "Shelley Skelley", name: "Pico 2 W / Treedix", w: 200,
-    left:  [{name:"VSYS",num:"39"},{name:"3V3 OUT",num:"36"},{name:"GND",num:"38"},
-            {name:"GND",num:"3"},{name:"GND",num:"18"},{name:"GND",num:"23"},{name:"GND",num:"28"}],
-    right: [{name:"GP00 TX",num:"1"},{name:"GP01 RX",num:"2"},{name:"GP04 SDA",num:"6"},
-            {name:"GP05 SCL",num:"7"},{name:"GP09",num:"12"},{name:"GP10",num:"14"},
-            {name:"GP11",num:"15"},{name:"GP12",num:"16"},{name:"GP13",num:"17"},
-            {name:"GP14",num:"19"},{name:"GP15",num:"20"},{name:"GP16",num:"21"},
-            {name:"GP17",num:"22"},{name:"GP18",num:"24"},{name:"GP19",num:"25"},
-            {name:"GP20",num:"26"},{name:"GP21",num:"27"},{name:"GP22",num:"29"}] },
-  { cat: "Shelley Skelley", name: "PCA9685 (servo driver)", w: 165,
-    left:  ["V+","GND","VCC","SDA","SCL"],
-    right: ["CH0","CH1"] },
-  { cat: "Shelley Skelley", name: "MAX98357A (amp)", w: 165,
-    left:  ["VIN","GND","BCLK","LRC / WS","DIN"],
-    right: ["OUT+","OUT−"] },
-  { cat: "Shelley Skelley", name: "microSD breakout", w: 165,
-    left:  ["3V","GND"],
-    right: ["DO / MISO","CS","CLK / SCK","DI / MOSI","CD"] },
-  { cat: "Shelley Skelley", name: "LD2410C radar (H1)", w: 175,
-    left:  [{name:"VCC",num:"H1-1"},{name:"GND",num:"H1-2"},{name:"TX",num:"H1-3"},
-            {name:"RX",num:"H1-4"},{name:"OUT",num:"H1-5"},{name:"— empty —",num:"H1-6"}] },
-  { cat: "Shelley Skelley", name: "Eye 1 (GC9A01)", w: 170,
-    left:  ["VCC","GND"],
-    right: ["SCL / SCK","SDA / MOSI","DC","RST","CS"] },
-  { cat: "Shelley Skelley", name: "Eye 2 (GC9A01)", w: 170,
-    left:  ["VCC","GND"],
-    right: ["SCL / SCK","SDA / MOSI","DC","RST","CS"] },
-  { cat: "Shelley Skelley", name: "5V DISTRIBUTION", w: 195,
-    left:  ["BARREL +","PICO VSYS","PCA V+","AMP VIN","RAD VCC (H1-1)"] },
-  { cat: "Shelley Skelley", name: "MAIN GROUND", w: 195,
-    left:  ["BARREL −","PICO GND-38","PCA GND","AMP GND"] },
-  { cat: "Shelley Skelley", name: "3V3 DISTRIBUTION", w: 195,
-    left:  ["PICO 3V3","EYE1 VCC","EYE2 VCC","SD 3V","PCA VCC"] },
-  { cat: "Shelley Skelley", name: "470uF 16V cap", w: 150, left: ["+"], right: ["−"] },
-  { cat: "Shelley Skelley", name: "Barrel adapter (5V 3A)", w: 155,
-    left:  ["+","−"] },
-  { cat: "Shelley Skelley", name: "Speaker", w: 120,
-    left:  ["+","−"] },
-  { cat: "Shelley Skelley", name: "Head servo", w: 140, left: ["3-wire plug"] },
-  { cat: "Shelley Skelley", name: "Jaw servo", w: 140, left: ["3-wire plug"] }
-];
+// Built-in parts were removed deliberately: pinouts are being re-entered one at
+// a time against datasheets, using the part builder below. Earlier definitions
+// remain in git history if any are wanted back. Saved layouts are unaffected —
+// they carry their own component definitions.
+const PARTS = [];
 
 function partPins(p) {
   const pins = [];
@@ -2364,25 +2590,42 @@ function buildLibrary() {
   const parts = allParts();
   const cats = [...new Set(parts.map(p => p.cat))];
   let html = '<div class="lib-modal"><div class="lib-head"><h3>Parts library</h3>' +
-             '<button class="close" id="libX">✕</button></div><div class="lib-body">';
+             '<button class="close" id="libX">✕</button></div><div class="lib-body">' +
+             '<div class="lib-grid"><div class="lib-card" id="libNew" style="border-style:dashed;">' +
+             '<div class="cn">+ New part…</div><div class="cd">Enter a pinout by hand</div></div></div>';
   for (const cat of cats) {
-    html += `<div class="lib-cat">${cat}</div><div class="lib-grid">`;
+    html += `<div class="lib-cat">${esc(cat)}</div><div class="lib-grid">`;
     for (const p of parts.filter(p => p.cat === cat)) {
       const n = (p.left||[]).length + (p.right||[]).length + (p.top||[]).length + (p.bottom||[]).length;
       html += `<div class="lib-card" data-part="${esc(p.name)}" style="position:relative;">` +
               `<div class="cn">${esc(p.name)}</div><div class="cd">${n} pins</div>` +
-              (p.user ? `<button data-del="${esc(p.name)}" title="Remove from library" ` +
+              (p.user ? `<button data-edit="${esc(p.name)}" title="Edit this part" ` +
+                        `style="position:absolute;top:5px;right:26px;padding:0 5px;line-height:1.4;` +
+                        `font-size:11px;border-radius:4px;">✎</button>` +
+                        `<button data-del="${esc(p.name)}" title="Remove from library" ` +
                         `style="position:absolute;top:5px;right:5px;padding:0 5px;line-height:1.4;` +
                         `font-size:11px;border-radius:4px;">✕</button>` : "") +
               `</div>`;
     }
     html += "</div>";
   }
+  if (!parts.length) {
+    html += '<div class="empty" style="margin:12px 0;">The library is empty. ' +
+            'Use “+ New part…” to enter a component. Saved layouts carry their own ' +
+            'definitions, so they open fine without it.</div>';
+  }
   html += "</div></div>";
   libEl.innerHTML = html;
   document.body.appendChild(libEl);
   libEl.addEventListener("click", e => { if (e.target === libEl) closeLibrary(); });
   libEl.querySelector("#libX").onclick = closeLibrary;
+  const nb = libEl.querySelector("#libNew");
+  if (nb) nb.onclick = () => { closeLibrary(); openPartBuilder(null); };
+  libEl.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation();
+      const p = allParts().find(x => x.name === btn.dataset.edit);
+      if (p) { closeLibrary(); openPartBuilder(p); } };
+  });
   libEl.querySelectorAll("[data-del]").forEach(btn => {
     btn.onclick = (e) => { e.stopPropagation(); deleteUserPart(btn.dataset.del); };
   });
