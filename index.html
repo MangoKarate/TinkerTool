@@ -1720,7 +1720,7 @@ svg.addEventListener("pointerdown", (e) => {
     selectOnly("note", n.id);
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "note", id: n.id, dx: w.x - n.x, dy: w.y - n.y, moved: false, pointerId: e.pointerId };
-    svg.setPointerCapture(e.pointerId);
+    try { svg.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
     renderAll();
     return;
   }
@@ -1730,32 +1730,26 @@ svg.addEventListener("pointerdown", (e) => {
     return;
   }
   if (wireEl && !bodyEl) {
-    // select-to-delete via confirm-less toggle: arm nothing, just remove on click? Better: select in list.
-    // Clicking a wire cycles its selection highlight -> we simply delete via panel. Here: quick delete on shift.
     if (e.shiftKey) { deleteWire(wireEl.dataset.wire); return; }
     const w = state.wires.find(x => x.id === wireEl.dataset.wire);
     if (w) {
       const pt = toWorld(e.clientX, e.clientY);
-      if (!Array.isArray(w.waypoints)) w.waypoints = [];
-      // Grab an existing waypoint if the pointer is on one, otherwise drop a new
-      // one into whichever leg it belongs to. Either way it then follows the
-      // pointer in both axes.
+      // Read only. Creating the array here counted as an edit, so a click that
+      // changed nothing still landed in the undo history.
+      const existing = Array.isArray(w.waypoints) ? w.waypoints : [];
       let idx = -1, bestD = WAYPOINT_GRAB;
-      w.waypoints.forEach((q, i) => {
+      existing.forEach((q, i) => {
         const d = Math.hypot(q.x - pt.x, q.y - pt.y);
         if (d < bestD) { bestD = d; idx = i; }
       });
-      if (idx === -1) {
-        const A = findPin(w.from), B = findPin(w.to);
-        const pa = pinPos(A.comp, A.pin), pb = pinPos(B.comp, B.pin);
-        const chain = [pa].concat(w.waypoints, [pb]);
-        idx = waypointInsertIndex(pt, chain);
-        w.waypoints.splice(idx, 0, { x: pt.x, y: pt.y });
-      }
-      drag = { type: "wire", id: w.id, wpIndex: idx, moved: false, pointerId: e.pointerId,
-               ox: w.waypoints[idx].x - pt.x, oy: w.waypoints[idx].y - pt.y };
+      // Nothing is committed on press. A click only selects; a waypoint is
+      // created on first movement, so a no-op click leaves no trace in history.
+      drag = { type: "wire", id: w.id, pointerId: e.pointerId, moved: false,
+               wpIndex: idx, pending: idx === -1 ? { x: pt.x, y: pt.y } : null,
+               ox: idx === -1 ? 0 : existing[idx].x - pt.x,
+               oy: idx === -1 ? 0 : existing[idx].y - pt.y };
       selectOnly("wire", w.id);
-      svg.setPointerCapture(e.pointerId);
+      try { svg.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
       renderAll();
       return;
     }
@@ -1765,14 +1759,14 @@ svg.addEventListener("pointerdown", (e) => {
     selectOnly("comp", c.id);
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false, pointerId: e.pointerId };
-    svg.setPointerCapture(e.pointerId);
+    try { svg.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
     renderAll();
     return;
   }
   // empty space -> pan (and deselect)
   drag = { type: "pan", sx: e.clientX, sy: e.clientY, ox: state.view.x, oy: state.view.y, moved: false, pointerId: e.pointerId };
   svg.classList.add("panning");
-  svg.setPointerCapture(e.pointerId);
+  try { svg.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
 });
 
 svg.addEventListener("pointermove", (e) => {
@@ -1788,12 +1782,24 @@ svg.addEventListener("pointermove", (e) => {
   } else if (drag.type === "wire") {
     const pt = toWorld(e.clientX, e.clientY);
     const w = state.wires.find(x => x.id === drag.id);
-    const q = w && w.waypoints && w.waypoints[drag.wpIndex];
+    if (!w) { endDrag(); return; }
+    if (drag.pending) {
+      // First real movement: now the waypoint is worth creating.
+      if (Math.hypot(pt.x - drag.pending.x, pt.y - drag.pending.y) < 3) return;
+      if (!Array.isArray(w.waypoints)) w.waypoints = [];
+      const A = findPin(w.from), B = findPin(w.to);
+      const chain = [pinPos(A.comp, A.pin)].concat(w.waypoints, [pinPos(B.comp, B.pin)]);
+      drag.wpIndex = waypointInsertIndex(drag.pending, chain);
+      w.waypoints.splice(drag.wpIndex, 0, { x: drag.pending.x, y: drag.pending.y });
+      drag.ox = 0; drag.oy = 0;
+      drag.pending = null;
+    }
+    const q = w.waypoints && w.waypoints[drag.wpIndex];
     if (q) {
       q.x = pt.x + drag.ox; q.y = pt.y + drag.oy;   // free in both axes
       drag.moved = true;
       renderBoard();
-    } else if (!w) { endDrag(); return; }
+    }
   } else if (drag.type === "note") {
     const w = toWorld(e.clientX, e.clientY);
     const n = state.notes.find(x => x.id === drag.id);
@@ -1828,15 +1834,16 @@ svg.addEventListener("pointerup", (e) => {
     renderAll();
   } else if (drag && drag.type === "wire") {
     const w = state.wires.find(x => x.id === drag.id);
-    if (w && w.waypoints) {
-      if (!drag.moved) w.waypoints.splice(drag.wpIndex, 1);   // a click, not a drag
-      else if (state.gridMM || document.getElementById("snap").checked) {
+    if (w && drag.moved && w.waypoints) {
+      if (document.getElementById("snap").checked) {
         const q = w.waypoints[drag.wpIndex];
         if (q) { q.x = snap(q.x); q.y = snap(q.y); }
       }
       if (!w.waypoints.length) delete w.waypoints;
+      renderAll();                 // one history entry for the whole drag
+    } else {
+      renderBoard();               // a click changed nothing worth recording
     }
-    renderAll();
   }
   endDrag();
 });
@@ -2016,13 +2023,22 @@ document.getElementById("fileInput").onchange = (e) => {
     try {
       const d = JSON.parse(reader.result);
       const clean = validateLayout(d);
-      applyLayout(clean.data);
-      renderAll(); fitView();
+      if (!clean.ok) { alert(clean.fatal); return; }
+      // Anything skipped is a decision for the user, not a silent reduction.
       if (clean.problems.length) {
-        console.warn("Layout loaded with problems:", clean.problems);
-        toast("Loaded, but skipped " + clean.problems.length + " bad entr" +
-              (clean.problems.length === 1 ? "y" : "ies") + " — see the console.");
+        console.warn("Layout problems:", clean.problems);
+        const keep = clean.data.components.length + " board" +
+                     (clean.data.components.length === 1 ? "" : "s") + " and " +
+                     clean.data.wires.length + " wire" + (clean.data.wires.length === 1 ? "" : "s");
+        if (!confirm("This layout has " + clean.problems.length + " entr" +
+                     (clean.problems.length === 1 ? "y" : "ies") +
+                     " TinkerTool could not read. Import it anyway, keeping " + keep +
+                     "?\n\nThe details are in the browser console.")) return;
       }
+      applyLayout(clean.data, true);   // the board you had stays one Undo away
+      renderAll(); fitView();
+      if (clean.problems.length) toast("Imported, skipping " + clean.problems.length + " unreadable entr" +
+                                       (clean.problems.length === 1 ? "y" : "ies") + ".");
     } catch (err) { alert("Could not read that file — is it a saved layout?"); }
   };
   reader.readAsText(file);
@@ -2956,7 +2972,7 @@ function restoreSession() {
   // An empty board is a legitimate saved state; only a missing session is not.
   if (!d || !Array.isArray(d.components)) return false;
   const clean = validateLayout(d);
-  if (!clean.ok) { console.warn("Saved session rejected:", clean.problems); return false; }
+  if (!clean.ok) { console.warn("Saved session rejected:", clean.fatal || clean.problems); return false; }
   applyLayout(clean.data);
   return true;
 }
@@ -2964,6 +2980,20 @@ function restoreSession() {
 // --- H5: validate and normalise before anything touches live state ---
 function validateLayout(d) {
   const problems = [];
+  // Fatal: the document itself is unusable. Distinct from a record we can skip.
+  if (!d || typeof d !== "object" || Array.isArray(d)) {
+    return { ok: false, fatal: "That file is not a layout.", problems: problems, data: null };
+  }
+  if (!Array.isArray(d.components) || !Array.isArray(d.wires)) {
+    return { ok: false, fatal: "That file has no components or wires list — it is probably not a TinkerTool layout.",
+             problems: problems, data: null };
+  }
+  if (+d.formatVersion > FORMAT_VERSION) {
+    return { ok: false, fatal: "That layout was saved by a newer version of TinkerTool (format " +
+             d.formatVersion + ", this build reads " + FORMAT_VERSION +
+             "). Opening it here would drop whatever this version does not understand.",
+             problems: problems, data: null };
+  }
   const comps = Array.isArray(d.components) ? d.components : [];
   const seenPin = new Set(), seenComp = new Set();
   const outComps = [];
@@ -3032,8 +3062,18 @@ function validateLayout(d) {
                    tidyVariant: Number(d.tidyVariant) || 0, wireVariant: Number(d.wireVariant) || 0,
                    seq: Math.max(maxSeq + 1, Number(d.seq) || 0) } };
 }
-function applyLayout(x) {
-  past.length = 0; future.length = 0; lastCommitted = null;
+// Keeping the pre-load board as one undo step: a load that turns out to be the
+// wrong file used to be unrecoverable, because applyLayout cleared history.
+function applyLayout(x, keepHistory) {
+  if (keepHistory) {
+    const before = historySnapshot();
+    if (lastCommitted !== null && before !== lastCommitted) past.push(lastCommitted);
+    past.push(before);
+    if (past.length > HISTORY_LIMIT) past.shift();
+    future.length = 0;
+  } else {
+    past.length = 0; future.length = 0; lastCommitted = null;
+  }
   state.components = x.components; state.wires = x.wires; state.notes = x.notes;
   state.routing = x.routing; state.labelPos = x.labelPos; state.gridMM = x.gridMM;
   state.tidyVariant = x.tidyVariant; state.wireVariant = x.wireVariant;
@@ -3043,6 +3083,7 @@ function applyLayout(x) {
   const lp = document.getElementById("labelPos"); if (lp) lp.value = state.labelPos;
   const gm = document.getElementById("gridMM"); if (gm) gm.value = state.gridMM || 0;
   applyGrid();
+  if (keepHistory) { lastCommitted = historySnapshot(); updateHistoryButtons(); }
 }
 
 let libEl = null;
