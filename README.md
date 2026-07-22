@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.9 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.0 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -62,6 +62,8 @@ from any device at your Pages URL.
   pointer while you drag and land on the grid when you let go; untick **Snap**
   for free positioning. Select a board, wire or note and press **Delete** (or
   Backspace) to remove it — deleting a board takes its wires with it.
+- **Undo / redo** — `⌘Z` and `⇧⌘Z`, or the two arrows in the toolbar. Every
+  edit is undoable, sixty deep, so a mistaken Delete costs one keystroke.
 - **Notes** — the `✎ Note` button drops a callout bubble you can drag anywhere
   and type into; use them to flag the details that bite you later. Notes travel
   with the saved layout and appear on the printed report.
@@ -111,6 +113,26 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.0
+- Added undo and redo (⌘Z / ⇧⌘Z), sixty steps deep.
+- Selection is now mutually exclusive, so Delete can no longer remove a stale
+  wire or note while a different object looks selected. Deletion is suppressed
+  behind the report and both modals.
+- Autosave covers every edit rather than only those that repainted everything,
+  persists the routing variants, and flushes when the page is hidden. A blank
+  board is a valid saved state.
+- Loaded files are validated and normalised before being applied: duplicate
+  ids, wires pointing at missing pins and out-of-range values are dropped, and
+  ids are derived from the file rather than a trusted counter.
+- The printed sheet recolours silhouette marks, gives every wire a dark casing
+  so pale ones stay visible, prints pin numbers alongside names, and breaks
+  cleanly across pages.
+- Escape routing understands top and bottom pins; both ends of a wire take
+  their own lane; pins follow rounded corners; the top-view electrolytic is
+  round; two pins on the same board loop around it rather than through it.
+- Editing a field no longer loses focus when the panel repaints.
+- Added a LICENSE (MIT).
 
 ### v1.9
 - Replaced the flowchart shape set with component silhouettes, which is what a

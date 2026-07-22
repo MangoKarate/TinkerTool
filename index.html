@@ -13,7 +13,7 @@
     --line:          #313c56;
     --ink:           #e8ecf5;
     --ink-mut:       #8b96b0;
-    --ink-dim:       #5a637d;
+    --ink-dim:       #7d87a3;
     --accent:        #e0873c;
     --accent-hi:     #f2983f;
     --accent-dim:    #7a5326;
@@ -207,12 +207,14 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v1.9</span>
+      <span class="ver" id="verTag">v2.0</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
       <button class="primary" id="addComp">+ Component</button>
       <button id="addNote">✎ Note</button>
+      <button id="undoBtn" class="ghost tiny" title="Undo (⌘Z)" disabled>↶</button>
+      <button id="redoBtn" class="ghost tiny" title="Redo (⇧⌘Z)" disabled>↷</button>
       <button id="addLib">⊞ Parts</button>
     </div>
     <div class="spacer"></div>
@@ -633,6 +635,16 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
              hSort: (a.y + b.y) / 2, vSort: 0, axis: "both" };
   }
 
+  // A wire between two pins of the same board has no gap to run through, so the
+  // usual mid-channel lands inside the body. Loop it around the nearest edge.
+  if (ca && cb && ca.id === cb.id) {
+    const top = ca.y - WIRE_CLEAR, bot = ca.y + ca.h + WIRE_CLEAR;
+    const midY = (p1.y + p2.y) / 2;
+    const ring = Math.abs(midY - top) <= Math.abs(midY - bot) ? top : bot;
+    const pts0 = [a, p1, { x: p1.x, y: ring + by }, { x: p2.x, y: ring + by }, p2, b];
+    return { d: roundedPath(pts0, WIRE_RADIUS), hKey: "self:" + ca.id + ":" + Math.round(ring / 4),
+             vKey: null, hSort: (p1.x + p2.x) / 2, vSort: 0, axis: "y" };
+  }
   const ea = escapePts(p1, aSide, ca, b.x, b.y);
   const eb = escapePts(p2, bSide, cb, a.x, a.y);
   let hKey = null, vKey = null, hSort = 0, vSort = 0;
@@ -1089,6 +1101,25 @@ function renderNoteEditor() {
 }
 
 // ---------- Render: panel ----------
+// Rebuilding the side panel while a field has focus destroys the very control
+// being typed into. Preserve focus and caret across a repaint.
+function withFocusPreserved(fn) {
+  const act = document.activeElement;
+  const panel = document.querySelector(".panel");
+  if (!panel || !act || !panel.contains(act)) { fn(); return; }
+  const nodes = [...panel.querySelectorAll("input,select,textarea,button")];
+  const idx = nodes.indexOf(act);
+  const selStart = act.selectionStart, selEnd = act.selectionEnd;
+  fn();
+  const again = [...panel.querySelectorAll("input,select,textarea,button")];
+  const back = again[idx];
+  if (back && typeof back.focus === "function") {
+    back.focus();
+    try { if (selStart != null && back.setSelectionRange) back.setSelectionRange(selStart, selEnd); }
+    catch (err) { /* not a text field */ }
+  }
+}
+
 function renderPanel() {
   // swatches
   const sw = document.getElementById("swatches");
@@ -1236,6 +1267,7 @@ function renderEditor() {
     }
     side.onchange = () => { p.side = side.value; renderBoard(); markDirty(); };
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
+    del.setAttribute("aria-label", "Delete pin " + (p.name || ""));
     del.onclick = () => { deletePin(c, p.id); };
     row.appendChild(num); row.appendChild(name); row.appendChild(side);
     row.appendChild(up); row.appendChild(dn); row.appendChild(del);
@@ -1298,6 +1330,7 @@ function renderWireList() {
     const lab = document.createElement("div"); lab.className = "wlabel";
     lab.textContent = `${a.comp.label}·${a.pin.name} → ${b.comp.label}·${b.pin.name}`;
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
+    del.setAttribute("aria-label", "Delete wire " + a.comp.label + " " + a.pin.name + " to " + b.comp.label + " " + b.pin.name);
     del.onclick = () => deleteWire(w.id);
     item.appendChild(cp); item.appendChild(lab); item.appendChild(del);
     wl.appendChild(item);
@@ -1356,7 +1389,12 @@ function deleteComponent(id) {
   renderAll();
 }
 
-function renderAll() { renderBoard(); renderPanel(); renderNoteEditor(); updateArmBanner(); markDirty(); }
+function renderAll() {
+  renderBoard();
+  withFocusPreserved(() => { renderPanel(); renderNoteEditor(); });
+  updateArmBanner();
+  markDirty();
+}
 function updateArmBanner() {
   const b = document.getElementById("armBanner");
   if (state.armedPin) {
@@ -1591,6 +1629,16 @@ svg.addEventListener("wheel", (e) => {
 }, { passive: false });
 
 document.addEventListener("keydown", (e) => {
+  const inField = e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" ||
+                               e.target.isContentEditable);
+  if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && !inField) {
+    e.preventDefault();
+    if (e.shiftKey) redo(); else undo();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === "y" || e.key === "Y") && !inField) {
+    e.preventDefault(); redo(); return;
+  }
   if (e.key === "Escape") {
     closeReport(); closeLibrary(); closeShapePicker();
     state.armedPin = null; renderAll();
@@ -1627,6 +1675,8 @@ document.getElementById("addComp").onclick = openShapePicker;
 document.getElementById("addNote").onclick = addNote;
 document.getElementById("addLib").onclick = openLibrary;
 document.getElementById("reportBtn").onclick = buildReport;
+document.getElementById("undoBtn").onclick = undo;
+document.getElementById("redoBtn").onclick = redo;
 document.getElementById("routeSel").onchange = (e) => { state.routing = e.target.value; renderBoard(); markDirty(); };
 document.getElementById("tidySel").onchange = (e) => {
   const v = e.target.value;
@@ -2163,10 +2213,64 @@ function snapshot() {
            tidyVariant: state.tidyVariant || 0, wireVariant: state.wireVariant || 0,
            seq: state.seq };
 }
+// ---------- Undo / redo ----------
+// Snapshots are cheap next to the cost of losing work: one keystroke can delete
+// a board and its wires, and autosave commits that within 400ms.
+const HISTORY_LIMIT = 60;
+let past = [], future = [], restoring = false;
+
+function historySnapshot() {
+  return JSON.stringify({ components: state.components, wires: state.wires,
+                          notes: state.notes, routing: state.routing });
+}
+let lastCommitted = null;
+function commitHistory(label) {
+  if (restoring) return;
+  const now = historySnapshot();
+  if (now === lastCommitted) return;          // nothing actually changed
+  if (lastCommitted !== null) {
+    past.push(lastCommitted);            // both stacks hold raw snapshots
+    if (past.length > HISTORY_LIMIT) past.shift();
+  }
+  lastCommitted = now;
+  future.length = 0;
+  updateHistoryButtons();
+}
+function applyHistory(raw) {
+  const d = JSON.parse(raw);
+  restoring = true;
+  state.components = d.components; state.wires = d.wires; state.notes = d.notes;
+  state.routing = d.routing || "tidy";
+  selectOnly(null, null); state.armedPin = null; drag = null;
+  const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
+  renderAll();
+  restoring = false;
+  lastCommitted = historySnapshot();
+  updateHistoryButtons();
+}
+function undo() {
+  if (!past.length) { toast("Nothing to undo."); return; }
+  future.push(historySnapshot());
+  applyHistory(past.pop());
+  toast("Undone.");
+}
+function redo() {
+  if (!future.length) { toast("Nothing to redo."); return; }
+  past.push(historySnapshot());
+  applyHistory(future.pop());
+  toast("Redone.");
+}
+function updateHistoryButtons() {
+  const u = document.getElementById("undoBtn"), r = document.getElementById("redoBtn");
+  if (u) u.disabled = past.length === 0;
+  if (r) r.disabled = future.length === 0;
+}
+
 let saveTimer = null;
 // Every state change routes through here. Autosave used to hang off renderAll()
 // alone, so edits that only called renderBoard/renderPanel were never persisted.
-function markDirty() {
+function markDirty(label) {
+  commitHistory(label);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => store.set(SESSION_KEY, snapshot()), 400);
 }
@@ -2244,6 +2348,7 @@ function validateLayout(d) {
                    seq: Math.max(maxSeq + 1, Number(d.seq) || 0) } };
 }
 function applyLayout(x) {
+  past.length = 0; future.length = 0; lastCommitted = null;
   state.components = x.components; state.wires = x.wires; state.notes = x.notes;
   state.routing = x.routing; state.tidyVariant = x.tidyVariant; state.wireVariant = x.wireVariant;
   state.seq = x.seq;
@@ -2317,6 +2422,8 @@ function seed() {
 if (!restoreSession()) seed();
 applyView();
 renderAll();
+lastCommitted = historySnapshot();
+updateHistoryButtons();
 </script>
 </body>
 </html>
