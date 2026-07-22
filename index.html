@@ -322,6 +322,20 @@ const state = {
   seq: 1
 };
 const uid = (p) => p + (state.seq++);
+
+// Selection is mutually exclusive. Setting one kind without clearing the others
+// let Delete act on a stale selection while a different object looked selected.
+function selectOnly(kind, id) {
+  state.selected     = kind === "comp" ? id : null;
+  state.selectedNote = kind === "note" ? id : null;
+  state.selectedWire = kind === "wire" ? id : null;
+}
+// True while anything covers the canvas — Delete must not act on what you cannot see.
+function overlayOpen() {
+  return !!document.getElementById("reportOverlay") ||
+         !!(libEl && libEl.classList.contains("show")) ||
+         !!(shapeEl && shapeEl.classList.contains("show"));
+}
 // Which axis each wire's channel can actually slide along, filled in on render.
 const wireAxis = new Map();
 
@@ -667,6 +681,7 @@ function renderBoard() {
   // wires — pass 1 works out which wires want the same channel, pass 2 draws
   // them one lane apart so none is hidden underneath another.
   wireLayer.innerHTML = "";
+  wireAxis.clear();
   const routes = [];
   for (const w of state.wires) {
     const a = findPin(w.from), b = findPin(w.to);
@@ -978,8 +993,7 @@ function addNote() {
   const pos = spawnXY(w, 60);
   const n = { id: uid("n"), x: pos.x, y: pos.y, w, text: "New note — edit the text in the side panel." };
   state.notes.push(n);
-  state.selectedNote = n.id;
-  state.selected = null;
+  selectOnly("note", n.id);
   renderAll();
 }
 
@@ -995,7 +1009,7 @@ function renderNoteEditor() {
   ta.value = n.text;
   ta.rows = 4;
   ta.style.cssText = "width:100%; resize:vertical; font-family:var(--sans); font-size:12px;";
-  ta.oninput = () => { n.text = ta.value; renderBoard(); };
+  ta.oninput = () => { n.text = ta.value; renderBoard(); markDirty(); };
   host.appendChild(ta);
 
   const row = document.createElement("div");
@@ -1007,7 +1021,7 @@ function renderNoteEditor() {
   const wIn = document.createElement("input");
   wIn.type = "number"; wIn.value = n.w; wIn.min = 120; wIn.max = 460;
   wIn.style.flex = "1";
-  wIn.oninput = () => { n.w = clampNum(wIn.value, 120, 460); renderBoard(); };
+  wIn.oninput = () => { n.w = clampNum(wIn.value, 120, 460); renderBoard(); markDirty(); };
   row.appendChild(lab); row.appendChild(wIn);
   host.appendChild(row);
 
@@ -1054,7 +1068,7 @@ function renderPanel() {
     for (const c of state.components) {
       const item = document.createElement("div");
       item.className = "comp-item" + (c.id === state.selected ? " sel" : "");
-      item.onclick = () => { state.selected = c.id; renderAll(); };
+      item.onclick = () => { selectOnly("comp", c.id); renderAll(); };
       const nm = document.createElement("div"); nm.className = "cname"; nm.textContent = c.label;
       const pc = document.createElement("div"); pc.className = "cpins"; pc.textContent = c.pins.length + "p";
       const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
@@ -1079,19 +1093,19 @@ function renderEditor() {
 
   // label + size
   const r1 = document.createElement("div"); r1.className = "row";
-  r1.appendChild(field("Label", "text", c.label, v => { c.label = v || "Part"; renderBoard(); renderPanel(); }, true));
+  r1.appendChild(field("Label", "text", c.label, v => { c.label = v || "Part"; renderBoard(); renderWireList(); markDirty(); }, true));
   ed.appendChild(r1);
 
   const r2 = document.createElement("div"); r2.className = "row"; r2.style.marginTop = "8px";
-  r2.appendChild(field("Width", "number", c.w, v => { c.w = clampNum(v, 40, 600); renderBoard(); }));
-  r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 600); renderBoard(); }));
+  r2.appendChild(field("Width", "number", c.w, v => { c.w = clampNum(v, 40, 600); renderBoard(); markDirty(); }));
+  r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 600); renderBoard(); markDirty(); }));
   ed.appendChild(r2);
 
   const r3 = document.createElement("div"); r3.className = "row"; r3.style.marginTop = "8px";
   const cl = document.createElement("label"); cl.className = "fld"; cl.style.flex = "1";
   const cs = document.createElement("span"); cs.textContent = "Color";
   const ci = document.createElement("input"); ci.type = "color"; ci.value = c.color || "#1f3b4d";
-  ci.oninput = () => { c.color = ci.value; renderBoard(); };
+  ci.oninput = () => { c.color = ci.value; renderBoard(); markDirty(); };
   cl.appendChild(cs); cl.appendChild(ci);
   r3.appendChild(cl); ed.appendChild(r3);
 
@@ -1104,7 +1118,7 @@ function renderEditor() {
     if ((c.shape || "rect") === sh[0]) o.selected = true;
     shSel.appendChild(o);
   }
-  shSel.onchange = () => { c.shape = shSel.value; renderBoard(); };
+  shSel.onchange = () => { c.shape = shSel.value; renderBoard(); markDirty(); };
   shLab.appendChild(shTxt); shLab.appendChild(shSel);
   shRow.appendChild(shLab); ed.appendChild(shRow);
 
@@ -1148,10 +1162,10 @@ function renderEditor() {
     num.type = "text"; num.value = p.num || ""; num.placeholder = "#"; num.className = "pin-mono";
     num.title = "Physical pin number (optional)";
     num.style.cssText = "width:34px;flex:0 0 34px;text-align:center;";
-    num.oninput = () => { p.num = num.value.trim(); renderBoard(); };
+    num.oninput = () => { p.num = num.value.trim(); renderBoard(); markDirty(); };
     const name = document.createElement("input");
     name.type = "text"; name.value = p.name; name.className = "pin-mono";
-    name.oninput = () => { p.name = name.value; renderBoard(); renderWireList(); };
+    name.oninput = () => { p.name = name.value; renderBoard(); renderWireList(); markDirty(); };
     const movePin = (dir) => {
       const same = c.pins.filter(x => x.side === p.side);
       const k = same.indexOf(p), target = same[k + dir];
@@ -1169,7 +1183,7 @@ function renderEditor() {
       const o = document.createElement("option"); o.value = s; o.textContent = s;
       if (p.side === s) o.selected = true; side.appendChild(o);
     }
-    side.onchange = () => { p.side = side.value; renderBoard(); };
+    side.onchange = () => { p.side = side.value; renderBoard(); markDirty(); };
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
     del.onclick = () => { deletePin(c, p.id); };
     row.appendChild(num); row.appendChild(name); row.appendChild(side);
@@ -1291,7 +1305,7 @@ function deleteComponent(id) {
   renderAll();
 }
 
-function renderAll() { renderBoard(); renderPanel(); renderNoteEditor(); updateArmBanner(); autosave(); }
+function renderAll() { renderBoard(); renderPanel(); renderNoteEditor(); updateArmBanner(); markDirty(); }
 function updateArmBanner() {
   const b = document.getElementById("armBanner");
   if (state.armedPin) {
@@ -1336,7 +1350,7 @@ function openShapePicker() {
     let html = '<div class="lib-modal"><div class="lib-head"><h3>Add a component</h3>' +
                '<button class="close" id="shapeX">✕</button></div><div class="lib-body">';
     for (const cat of [...new Set(SHAPES.map(sh => sh[3]))]) {
-      html += '<div class="lib-cat">' + cat + '</div><div class="lib-grid">';
+      html += '<div class="lib-cat">' + esc(cat) + '</div><div class="lib-grid">';
       for (const sh of SHAPES.filter(sh => sh[3] === cat)) {
         html += '<div class="lib-card" data-shape="' + sh[0] + '"><div class="cn">' + sh[1] +
                 '</div><div class="cd">' + sh[2] + '</div></div>';
@@ -1373,7 +1387,7 @@ function addComponent(shape) {
     ]
   };
   state.components.push(comp);
-  state.selected = comp.id;
+  selectOnly("comp", comp.id);
   renderAll();
 }
 
@@ -1388,8 +1402,7 @@ svg.addEventListener("pointerdown", (e) => {
 
   if (noteEl) {
     const n = state.notes.find(x => x.id === noteEl.dataset.noteBody);
-    state.selectedNote = n.id;
-    state.selected = null; state.selectedWire = null;
+    selectOnly("note", n.id);
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "note", id: n.id, dx: w.x - n.x, dy: w.y - n.y, moved: false };
     svg.setPointerCapture(e.pointerId);
@@ -1410,7 +1423,7 @@ svg.addEventListener("pointerdown", (e) => {
       const pt = toWorld(e.clientX, e.clientY);
       const b0 = w.bend || { x: 0, y: 0 };
       drag = { type: "wire", id: w.id, sx: pt.x, sy: pt.y, bx: b0.x, by: b0.y, moved: false };
-      state.selectedWire = w.id; state.selected = null; state.selectedNote = null;
+      selectOnly("wire", w.id);
       svg.setPointerCapture(e.pointerId);
       renderAll();
       return;
@@ -1418,12 +1431,11 @@ svg.addEventListener("pointerdown", (e) => {
   }
   if (bodyEl) {
     const c = state.components.find(c => c.id === bodyEl.dataset.body);
-    state.selected = c.id;
-    state.selectedNote = null; state.selectedWire = null;
+    selectOnly("comp", c.id);
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false };
     svg.setPointerCapture(e.pointerId);
-    renderPanel();
+    renderAll();
     return;
   }
   // empty space -> pan (and deselect)
@@ -1471,7 +1483,7 @@ svg.addEventListener("pointermove", (e) => {
 svg.addEventListener("pointerup", (e) => {
   if (drag && drag.type === "pan" && !drag.moved) {
     // clicked empty -> deselect & disarm
-    state.selected = null; state.selectedNote = null; state.selectedWire = null; state.armedPin = null; renderAll();
+    selectOnly(null, null); state.armedPin = null; renderAll();
   } else if (drag && drag.moved && drag.type === "comp") {
     const c = state.components.find(x => x.id === drag.id);
     if (c) { c.x = snap(c.x); c.y = snap(c.y); }
@@ -1491,7 +1503,7 @@ svg.addEventListener("dblclick", (e) => {
   const wireEl = e.target.closest("[data-wire]");
   if (!wireEl) return;
   const w = state.wires.find(x => x.id === wireEl.dataset.wire);
-  if (w && w.bend) { delete w.bend; renderBoard(); }
+  if (w && w.bend) { delete w.bend; renderBoard(); markDirty(); }
 });
 
 function handlePinClick(pinId) {
@@ -1529,7 +1541,11 @@ document.addEventListener("keydown", (e) => {
   // On a Mac keyboard the key marked "delete" reports as Backspace.
   if (e.key === "Delete" || e.key === "Backspace") {
     const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    // document itself has no closest(), so guard the call rather than assume an element
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" ||
+              t.tagName === "BUTTON" || t.isContentEditable ||
+              (t.closest && t.closest("input,textarea,select,[contenteditable]")))) return;
+    if (overlayOpen()) return;   // the board is covered; deleting it unseen is data loss
     if (state.selectedWire) {
       deleteWire(state.selectedWire); state.selectedWire = null;
       toast("Wire deleted."); e.preventDefault(); return;
@@ -1553,7 +1569,7 @@ document.getElementById("addComp").onclick = openShapePicker;
 document.getElementById("addNote").onclick = addNote;
 document.getElementById("addLib").onclick = openLibrary;
 document.getElementById("reportBtn").onclick = buildReport;
-document.getElementById("routeSel").onchange = (e) => { state.routing = e.target.value; renderBoard(); };
+document.getElementById("routeSel").onchange = (e) => { state.routing = e.target.value; renderBoard(); markDirty(); };
 document.getElementById("tidySel").onchange = (e) => {
   const v = e.target.value;
   e.target.value = "";
@@ -1604,7 +1620,7 @@ function fitView() {
 
 // save / load
 document.getElementById("saveBtn").onclick = () => {
-  const data = JSON.stringify({ components: state.components, wires: state.wires, notes: state.notes, routing: state.routing, tidyVariant: state.tidyVariant, wireVariant: state.wireVariant, seq: state.seq }, null, 2);
+  const data = JSON.stringify(snapshot(), null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -1619,15 +1635,14 @@ document.getElementById("fileInput").onchange = (e) => {
   reader.onload = () => {
     try {
       const d = JSON.parse(reader.result);
-      state.components = d.components || [];
-      state.wires = d.wires || [];
-      state.notes = d.notes || [];
-      state.routing = d.routing || "tidy";
-      state.tidyVariant = d.tidyVariant || 0; state.wireVariant = d.wireVariant || 0;
-      const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
-      state.seq = d.seq || 1000;
-      state.selected = null; state.selectedNote = null; state.armedPin = null;
+      const clean = validateLayout(d);
+      applyLayout(clean.data);
       renderAll(); fitView();
+      if (clean.problems.length) {
+        console.warn("Layout loaded with problems:", clean.problems);
+        toast("Loaded, but skipped " + clean.problems.length + " bad entr" +
+              (clean.problems.length === 1 ? "y" : "ies") + " — see the console.");
+      }
     } catch (err) { alert("Could not read that file — is it a saved layout?"); }
   };
   reader.readAsText(file);
@@ -1637,7 +1652,7 @@ document.getElementById("clearBtn").onclick = () => {
   if (!state.components.length && !state.wires.length && !state.notes.length) return;
   if (confirm("Clear the whole board?")) {
     state.components = []; state.wires = []; state.notes = [];
-    state.selected = null; state.selectedNote = null; state.armedPin = null;
+    selectOnly(null, null); state.armedPin = null;
     store.del(SESSION_KEY);
     renderAll();
   }
@@ -1665,8 +1680,8 @@ function tidyWires(quiet) {
   const n = state.wires.filter(w => w.bend).length;
   for (const w of state.wires) delete w.bend;
   const v = (state.wireVariant || 0) % WIRE_ROUTINGS.length;
+  renderAll();                       // render with v, then advance
   state.wireVariant = (v + 1) % WIRE_ROUTINGS.length;
-  renderAll();
   if (!quiet) {
     toast("Routing " + (v + 1) + " of " + WIRE_ROUTINGS.length + " — " + WIRE_ROUTINGS[v] +
           (n ? ". Reset " + n + " hand-routed wire" + (n === 1 ? "" : "s") + "." : ". Tidy again for another."));
@@ -1812,7 +1827,10 @@ function buildReport() {
     : '<p class="none">No notes on this drawing.</p>';
 
   const ver = (document.getElementById("verTag") || {}).textContent || "";
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.getFullYear() + "-" +
+                String(now.getMonth() + 1).padStart(2, "0") + "-" +
+                String(now.getDate()).padStart(2, "0");
 
   const ver2 = ver, today2 = today;
   closeReport();
@@ -1994,13 +2012,14 @@ function spawnXY(w, h) {
 function addFromPart(p) {
   const sideMax = Math.max((p.left || []).length, (p.right || []).length, 1);
   const tbMax   = Math.max((p.top || []).length, (p.bottom || []).length, 0);
-  const h = Math.max(70, sideMax * 24 + 26);
+  const h = p.h || Math.max(70, sideMax * 24 + 26);
   const w = Math.max(p.w || 130, tbMax * 48 + 26);
   const pos = spawnXY(w, h);
-  const comp = { id: uid("c"), x: pos.x, y: pos.y, w, h, label: p.name, pins: partPins(p) };
+  const comp = { id: uid("c"), x: pos.x, y: pos.y, w, h, label: p.name,
+                 shape: p.shape || "rect", pins: partPins(p) };
   if (p.color) comp.color = p.color;
   state.components.push(comp);
-  state.selected = comp.id;
+  selectOnly("comp", comp.id);
   closeLibrary();
   renderAll();
 }
@@ -2019,7 +2038,8 @@ function allParts() { return PARTS.concat(USER_PARTS); }
 function saveToLibrary(c) {
   const name = (prompt("Save this board to your library as:", c.label) || "").trim();
   if (!name) return;
-  const part = { cat: "My parts", name: name, w: c.w, user: true, left: [], right: [], top: [], bottom: [] };
+  const part = { cat: "My parts", name: name, w: c.w, h: c.h, shape: c.shape || "rect",
+                 user: true, left: [], right: [], top: [], bottom: [] };
   for (const pin of c.pins) part[pin.side].push(pin.num ? { name: pin.name, num: pin.num } : pin.name);
   if (c.color) part.color = c.color;
   const at = USER_PARTS.findIndex(x => x.name === name);
@@ -2039,21 +2059,99 @@ function deleteUserPart(name) {
   rebuildLibrary();
 }
 
-let saveTimer = null;
-function autosave() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    store.set(SESSION_KEY, { components: state.components, wires: state.wires,
-                             notes: state.notes, routing: state.routing, seq: state.seq });
-  }, 400);
+const FORMAT_VERSION = 2;
+function snapshot() {
+  return { formatVersion: FORMAT_VERSION, components: state.components, wires: state.wires,
+           notes: state.notes, routing: state.routing,
+           tidyVariant: state.tidyVariant || 0, wireVariant: state.wireVariant || 0,
+           seq: state.seq };
 }
+let saveTimer = null;
+// Every state change routes through here. Autosave used to hang off renderAll()
+// alone, so edits that only called renderBoard/renderPanel were never persisted.
+function markDirty() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => store.set(SESSION_KEY, snapshot()), 400);
+}
+function flushSave() { clearTimeout(saveTimer); store.set(SESSION_KEY, snapshot()); }
+window.addEventListener("pagehide", flushSave);
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); });
+
 function restoreSession() {
   const d = store.get(SESSION_KEY);
-  if (!d || !d.components || !d.components.length) return false;
-  state.components = d.components; state.wires = d.wires || []; state.notes = d.notes || [];
-  state.routing = d.routing || "tidy"; state.seq = d.seq || 1000;
-  const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
+  // An empty board is a legitimate saved state; only a missing session is not.
+  if (!d || !Array.isArray(d.components)) return false;
+  const clean = validateLayout(d);
+  if (!clean.ok) { console.warn("Saved session rejected:", clean.problems); return false; }
+  applyLayout(clean.data);
   return true;
+}
+
+// --- H5: validate and normalise before anything touches live state ---
+function validateLayout(d) {
+  const problems = [];
+  const comps = Array.isArray(d.components) ? d.components : [];
+  const seenPin = new Set(), seenComp = new Set();
+  const outComps = [];
+  for (const c of comps) {
+    if (!c || typeof c !== "object" || !c.id) { problems.push("component without an id"); continue; }
+    if (seenComp.has(c.id)) { problems.push("duplicate component id " + c.id); continue; }
+    seenComp.add(c.id);
+    const pins = [];
+    for (const pin of (Array.isArray(c.pins) ? c.pins : [])) {
+      if (!pin || !pin.id) { problems.push("pin without an id on " + c.id); continue; }
+      if (seenPin.has(pin.id)) { problems.push("duplicate pin id " + pin.id); continue; }
+      seenPin.add(pin.id);
+      pins.push({ id: pin.id, name: String(pin.name == null ? "" : pin.name),
+                  num: String(pin.num == null ? "" : pin.num),
+                  side: ["left","right","top","bottom"].includes(pin.side) ? pin.side : "left" });
+    }
+    outComps.push({ id: c.id, label: String(c.label == null ? "Part" : c.label),
+                    x: Number(c.x) || 0, y: Number(c.y) || 0,
+                    w: clampNum(c.w, 40, 900), h: clampNum(c.h, 40, 900),
+                    shape: typeof c.shape === "string" ? c.shape : "rect",
+                    color: typeof c.color === "string" ? c.color : undefined, pins: pins });
+  }
+  const outWires = [], seenWire = new Set(), pairSeen = new Set();
+  for (const w of (Array.isArray(d.wires) ? d.wires : [])) {
+    if (!w || !w.id) { problems.push("wire without an id"); continue; }
+    if (seenWire.has(w.id)) { problems.push("duplicate wire id " + w.id); continue; }
+    if (!seenPin.has(w.from) || !seenPin.has(w.to)) { problems.push("wire " + w.id + " references a missing pin"); continue; }
+    if (w.from === w.to) { problems.push("wire " + w.id + " joins a pin to itself"); continue; }
+    const key = [w.from, w.to].sort().join("~");
+    if (pairSeen.has(key)) { problems.push("duplicate connection " + key); continue; }
+    pairSeen.add(key); seenWire.add(w.id);
+    const wire = { id: w.id, from: w.from, to: w.to,
+                   color: typeof w.color === "string" ? w.color : "#d94141" };
+    if (w.bend && isFinite(w.bend.x) && isFinite(w.bend.y)) wire.bend = { x: +w.bend.x, y: +w.bend.y };
+    if (typeof w.route === "string") wire.route = w.route;
+    outWires.push(wire);
+  }
+  const outNotes = [], seenNote = new Set();
+  for (const n of (Array.isArray(d.notes) ? d.notes : [])) {
+    if (!n || !n.id || seenNote.has(n.id)) { problems.push("bad or duplicate note"); continue; }
+    seenNote.add(n.id);
+    outNotes.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0,
+                    w: clampNum(n.w, 120, 460), text: String(n.text == null ? "" : n.text) });
+  }
+  // Never trust a saved seq: derive it from the ids actually present.
+  let maxSeq = 0;
+  for (const id of [...seenComp, ...seenPin, ...seenWire, ...seenNote]) {
+    const m = String(id).match(/(\d+)$/);
+    if (m) maxSeq = Math.max(maxSeq, parseInt(m[1], 10));
+  }
+  return { ok: true, problems: problems,
+           data: { components: outComps, wires: outWires, notes: outNotes,
+                   routing: ["tidy","curved","direct"].includes(d.routing) ? d.routing : "tidy",
+                   tidyVariant: Number(d.tidyVariant) || 0, wireVariant: Number(d.wireVariant) || 0,
+                   seq: Math.max(maxSeq + 1, Number(d.seq) || 0) } };
+}
+function applyLayout(x) {
+  state.components = x.components; state.wires = x.wires; state.notes = x.notes;
+  state.routing = x.routing; state.tidyVariant = x.tidyVariant; state.wireVariant = x.wireVariant;
+  state.seq = x.seq;
+  selectOnly(null, null); state.armedPin = null; drag = null;
+  const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
 }
 
 let libEl = null;
