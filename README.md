@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v1.8 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v1.9 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -20,10 +20,14 @@ from any device at your Pages URL.
 - **Parts library** — the `⊞ Parts` button drops in ready-made boards (Arduino
   Uno / Nano, ESP32, ESP8266, Raspberry Pi 40-pin) and components (LED, resistor,
   button, pot, servo, HC-SR04, DHT11, buzzer) with correct pin names and sides.
-- **Shapes** — `+ Component` offers the usual flowchart set: rectangle,
-  rounded, diamond, parallelogram, hexagon, circle, cylinder, document,
-  trapezoid, triangle and chevron. Pins follow the real outline, so a
-  parallelogram's pins sit on its slant and a cylinder's on its curved ends.
+- **Shapes** — `+ Component` draws parts as silhouettes rather than boxes:
+  DIP IC with its notch and pin-1 dot, module with mounting holes, display with
+  a bezel, screw terminal block, resistor with colour bands, electrolytic seen
+  from above or from the side, diode, LED with dome and flange, TO-220 with its
+  tab, TO-92, push button, potentiometer, servo with flanges, speaker, barrel
+  jack — plus plain rectangle, rounded, circle and a splice marker. Pins follow
+  the real outline, so an LED's pins sit on its flange and a TO-92's on its
+  curved back.
 - **Components** — or add a blank block and set label, size, colour, and any
   number of named pins (top / right / bottom / left); pins auto-space along
   their side and can be reordered or moved to another side.
@@ -107,6 +111,15 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v1.9
+- Replaced the flowchart shape set with component silhouettes, which is what a
+  wiring diagram actually needs: twenty shapes grouped into basic, chips and
+  boards, passives, and semiconductors and I/O.
+- A shape is now an outline plus a few marks — a notch, a polarity band,
+  mounting holes, a cathode stripe — because the outline alone is not enough to
+  recognise a part. Marks take the block's readable ink colour, so they work on
+  any component colour.
 
 ### v1.8
 - Extended the shape set to eleven flowchart shapes: added parallelogram,

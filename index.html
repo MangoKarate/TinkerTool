@@ -207,7 +207,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v1.8</span>
+      <span class="ver" id="verTag">v1.9</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -359,17 +359,89 @@ function wavePts(y, amp, n) {
   return out;
 }
 const SHAPE_PTS = {
-  diamond:       [[.5,0],[1,.5],[.5,1],[0,.5]],
-  parallelogram: [[.24,0],[1,0],[.76,1],[0,1]],
-  hexagon:       [[.25,0],[.75,0],[1,.5],[.75,1],[.25,1],[0,.5]],
-  trapezoid:     [[.22,0],[.78,0],[1,1],[0,1]],
-  triangle:      [[.5,0],[1,1],[0,1]],
-  chevron:       [[0,0],[.78,0],[1,.5],[.78,1],[0,1],[.22,.5]],
-  cylinder:      arcPts(.5,.14,.5,.14, Math.PI, Math.PI*2, 14).concat(arcPts(.5,.86,.5,.14, 0, Math.PI, 14)),
-  document:      [[0,0],[1,0]].concat(wavePts(.84,.13,18))
+  diamond:  [[.5,0],[1,.5],[.5,1],[0,.5]],
+  // TO-220 regulator: mounting tab above a wider body
+  to220:    [[.2,0],[.8,0],[.8,.28],[1,.28],[1,1],[0,1],[0,.28],[.2,.28]],
+  // TO-92 transistor seen from above: round back, flat front
+  to92:     arcPts(.5,.58,.5,.58, Math.PI, Math.PI*2, 16).concat([[1,.94],[0,.94]]),
+  // 5mm LED from the side: dome, body, flange
+  led:      arcPts(.5,.46,.4,.46, Math.PI, Math.PI*2, 16)
+              .concat([[.9,.8],[1,.8],[1,.93],[0,.93],[0,.8],[.1,.8]]),
+  // hobby servo: case with two mounting flanges
+  servo:    [[.12,0],[.88,0],[.88,.16],[1,.16],[1,.3],[.88,.3],[.88,1],
+             [.12,1],[.12,.3],[0,.3],[0,.16],[.12,.16]],
+  // electrolytic can from the side, with the crimp
+  ecan:     [[.08,0],[.92,0],[.92,.86],[.78,1],[.22,1],[.08,.86]]
 };
+// Rounding for shapes that draw as a rectangle, as a fraction of the short side.
+const SHAPE_RX = { rounded: .5, resistor: .34, diode: .2, barrel: .2,
+                   display: .07, board: .05, dip: .05, button: .06, terminal: .05 };
 // Shapes whose top edge is too narrow to carry a label.
-const SHAPE_CENTRE_LABEL = { circle:1, diamond:1, triangle:1, cylinder:1, hexagon:1 };
+const SHAPE_CENTRE_LABEL = { circle:1, diamond:1, ecap:1, ecan:1, led:1, to92:1,
+                             pot:1, speaker:1, resistor:1, diode:1, to220:1 };
+
+// The outline alone is not enough to recognise a part, so each shape also draws
+// a few marks — a notch, a polarity stripe, mounting holes — in normalised space.
+function shapeMarks(shape, c, ink) {
+  const X = u => c.x + u * c.w, Y = v => c.y + v * c.h;
+  const S = Math.min(c.w, c.h);
+  const out = [];
+  const put = (tag, at) => { at.stroke = at.stroke === undefined ? ink : at.stroke;
+                             at["pointer-events"] = "none"; out.push([tag, at]); };
+  const line = (x1,y1,x2,y2,op,wd) => put("line", { x1:X(x1), y1:Y(y1), x2:X(x2), y2:Y(y2),
+                     "stroke-opacity": op||.42, "stroke-width": wd||1.2, fill:"none" });
+  const circ = (cx,cy,r,op,filled) => put("circle", { cx:X(cx), cy:Y(cy), r:r*S,
+                     "stroke-opacity": op||.42, "stroke-width":1.2,
+                     fill: filled ? ink : "none", "fill-opacity": filled ? (op||.3) : 0 });
+  const box = (x,y,w,h,rx,op,filled) => put("rect", { x:X(x), y:Y(y), width:w*c.w, height:h*c.h,
+                     rx:(rx||0)*S, "stroke-opacity": op||.42, "stroke-width":1.2,
+                     fill: filled ? ink : "none", "fill-opacity": filled ? (op||.28) : 0 });
+
+  switch (shape) {
+    case "dip":                                   // notch on one end, pin-1 dot
+      put("path", { d:"M"+X(.38)+","+c.y+" A"+(.12*c.w)+","+(.12*c.w)+" 0 0 0 "+X(.62)+","+c.y,
+                    fill:"none", "stroke-opacity":.5, "stroke-width":1.4 });
+      circ(.14, .19, .045, .5, true); break;
+    case "board":                                 // PCB with corner mounting holes
+      [[.09,.14],[.91,.14],[.09,.86],[.91,.86]].forEach(q => circ(q[0], q[1], .035, .38));
+      break;
+    case "display":                               // bezel around an active area
+      box(.1, .16, .8, .68, .03, .38); break;
+    case "ecap":                                  // electrolytic from above: polarity band
+      put("path", { d:"M"+X(.5)+","+Y(.06)+" A"+(.44*c.w)+","+(.44*c.h)+" 0 0 0 "+X(.5)+","+Y(.94),
+                    fill:ink, "fill-opacity":.22, "stroke-opacity":.35 });
+      line(.2,.5,.32,.5,.6,1.6); break;
+    case "ecan":                                  // electrolytic from the side
+      line(.08,.2,.92,.2,.35); line(.3,.42,.42,.42,.6,1.6); break;
+    case "resistor":                              // colour bands
+      [.3,.44,.58,.74].forEach((u,k) => line(u,.14,u,.86,k===3?.3:.5, k===3?2:3.4));
+      break;
+    case "diode":                                 // cathode band
+      line(.8,.1,.8,.9,.6,4); break;
+    case "led":                                   // lens highlight
+      put("path", { d:"M"+X(.3)+","+Y(.34)+" Q"+X(.42)+","+Y(.16)+" "+X(.58)+","+Y(.2),
+                    fill:"none", "stroke-opacity":.4, "stroke-width":1.6 }); break;
+    case "to220":                                 // hole in the mounting tab
+      circ(.5, .12, .05, .45); break;
+    case "to92":
+      line(.12,.9,.88,.9,.3); break;
+    case "button":                                // plunger
+      circ(.5, .5, .19, .45); circ(.5, .5, .1, .3, true); break;
+    case "pot":                                   // shaft and flat
+      circ(.5, .5, .18, .45); line(.5,.32,.5,.14,.5,2); break;
+    case "servo":                                 // flange holes and spline
+      circ(.06, .23, .028, .4); circ(.94, .23, .028, .4);
+      circ(.5, .62, .1, .4); circ(.5, .62, .04, .35, true); break;
+    case "speaker":                               // cone rings
+      circ(.5,.5,.4,.3); circ(.5,.5,.26,.3); circ(.5,.5,.1,.4,true); break;
+    case "barrel":                                // jack opening
+      circ(.2,.5,.2,.4); circ(.2,.5,.08,.4,true); break;
+    case "terminal":                              // screw heads
+      [.22,.5,.78].forEach(u => { circ(u,.42,.09,.4); line(u-.05,.42,u+.05,.42,.5,1.6); });
+      break;
+  }
+  return out;
+}
 
 // Where the outline sits for a given side, at fraction t along that side.
 function polyEdge(pts, side, t) {
@@ -693,7 +765,8 @@ function renderBoard() {
       body = document.createElementNS(SVGNS, "rect");
       body.setAttribute("x", c.x); body.setAttribute("y", c.y);
       body.setAttribute("width", c.w); body.setAttribute("height", c.h);
-      body.setAttribute("rx", shape === "rounded" ? Math.min(c.w, c.h) / 2 : 8);
+      const rxf = SHAPE_RX[shape];
+      body.setAttribute("rx", rxf ? rxf * Math.min(c.w, c.h) : 8);
     }
     const fill = c.color || "#1f3b4d";
     const ink = readableInk(fill);
@@ -712,6 +785,12 @@ function renderBoard() {
       tex.setAttribute("rx", "5"); tex.setAttribute("fill", "none");
       tex.setAttribute("stroke", "rgba(255,255,255,.06)"); tex.setAttribute("pointer-events", "none");
       g.appendChild(tex);
+    }
+
+    for (const m of shapeMarks(shape, c, ink)) {
+      const el = document.createElementNS(SVGNS, m[0]);
+      for (const k in m[1]) el.setAttribute(k, m[1][k]);
+      g.appendChild(el);
     }
 
     const label = document.createElementNS(SVGNS, "text");
@@ -1225,17 +1304,29 @@ function updateArmBanner() {
 
 // ---------- Add component ----------
 const SHAPES = [
-  ["rect",          "Rectangle",     "Process · boards, ICs, breakouts"],
-  ["rounded",       "Rounded",       "Terminator · start, end, modules"],
-  ["diamond",       "Diamond",       "Decision · junctions and splices"],
-  ["parallelogram", "Parallelogram", "Data · input and output"],
-  ["hexagon",       "Hexagon",       "Preparation · setup steps"],
-  ["circle",        "Circle",        "Connector · round displays, speakers"],
-  ["cylinder",      "Cylinder",      "Storage · database, battery"],
-  ["document",      "Document",      "Document · reports and printouts"],
-  ["trapezoid",     "Trapezoid",     "Manual operation"],
-  ["triangle",      "Triangle",      "Merge and extract"],
-  ["chevron",       "Chevron",       "Flow step · staged process"]
+  ["rect",      "Rectangle",    "Plain block",                   "Basic"],
+  ["rounded",   "Rounded",      "Soft-edged block",              "Basic"],
+  ["circle",    "Circle",       "Round part",                    "Basic"],
+  ["diamond",   "Splice",       "Y-splice or junction",          "Basic"],
+
+  ["dip",       "DIP IC",       "Notch and pin-1 dot",           "Chips & boards"],
+  ["board",     "Module / PCB", "Breakout with mounting holes",  "Chips & boards"],
+  ["display",   "Display",      "Screen with a bezel",           "Chips & boards"],
+  ["terminal",  "Terminal block","Screw terminals",              "Chips & boards"],
+
+  ["resistor",  "Resistor",     "Axial body with bands",         "Passives"],
+  ["ecap",      "Electrolytic", "From above, polarity band",     "Passives"],
+  ["ecan",      "Capacitor can","From the side",                 "Passives"],
+  ["diode",     "Diode",        "Cathode band",                  "Passives"],
+  ["led",       "LED",          "Dome, body and flange",         "Passives"],
+
+  ["to220",     "TO-220",       "Regulator with a tab",          "Semis & I/O"],
+  ["to92",      "TO-92",        "Small transistor, flat front",  "Semis & I/O"],
+  ["button",    "Push button",  "Tactile switch",                "Semis & I/O"],
+  ["pot",       "Potentiometer","Shaft and body",                "Semis & I/O"],
+  ["servo",     "Servo",        "Case with mounting flanges",    "Semis & I/O"],
+  ["speaker",   "Speaker",      "Cone rings",                    "Semis & I/O"],
+  ["barrel",    "Barrel jack",  "DC power inlet",                "Semis & I/O"]
 ];
 let shapeEl = null;
 function openShapePicker() {
@@ -1243,12 +1334,16 @@ function openShapePicker() {
     shapeEl = document.createElement("div");
     shapeEl.className = "lib-backdrop";
     let html = '<div class="lib-modal"><div class="lib-head"><h3>Add a component</h3>' +
-               '<button class="close" id="shapeX">✕</button></div><div class="lib-body"><div class="lib-grid">';
-    for (const sh of SHAPES) {
-      html += '<div class="lib-card" data-shape="' + sh[0] + '"><div class="cn">' + sh[1] +
-              '</div><div class="cd">' + sh[2] + '</div></div>';
+               '<button class="close" id="shapeX">✕</button></div><div class="lib-body">';
+    for (const cat of [...new Set(SHAPES.map(sh => sh[3]))]) {
+      html += '<div class="lib-cat">' + cat + '</div><div class="lib-grid">';
+      for (const sh of SHAPES.filter(sh => sh[3] === cat)) {
+        html += '<div class="lib-card" data-shape="' + sh[0] + '"><div class="cn">' + sh[1] +
+                '</div><div class="cd">' + sh[2] + '</div></div>';
+      }
+      html += "</div>";
     }
-    html += "</div></div></div>";
+    html += "</div></div>";
     shapeEl.innerHTML = html;
     document.body.appendChild(shapeEl);
     shapeEl.addEventListener("click", e => { if (e.target === shapeEl) closeShapePicker(); });
