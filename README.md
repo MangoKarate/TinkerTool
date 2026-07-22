@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.3 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.4 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -142,6 +142,25 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.4
+- Loading is atomic. A file that is not a layout, or was saved by a newer
+  version, is refused rather than partly applied; unreadable records need
+  confirmation before import; and the board you had stays one Undo away.
+- Note paper, font and size now survive Load and session restore — the
+  validator had been silently discarding them since v2.2.
+- Optimize leaves the routing it actually drew in state, so the picture no
+  longer changes on the next redraw.
+- Undo covers name position, grid, and both Optimize variants.
+- Clicking a wire only selects it. A waypoint is created on movement, so a
+  click leaves nothing behind and a drag is a single undo step.
+- Same-component wires ring the correct pair of edges — a top-to-bottom
+  connection no longer runs through the body. All sixteen side pairs verified.
+- Pins sharing an edge are laned apart at the stub, so a fan-out off one side
+  no longer buries itself.
+- Colours are restricted to six-digit hex and the report swatch is built as a
+  node, closing a CSS-injection path through a saved colour.
+- The pinout paste accepts single-spaced lines, the format its own help shows.
 
 ### v2.3
 - Wires are hand-routed with waypoints instead of a single-axis nudge. Grab a
