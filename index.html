@@ -1597,6 +1597,14 @@ function contentBounds() {
   const boxes = [];
   for (const c of state.components) boxes.push([c.x, c.y, c.x + c.w, c.y + c.h]);
   for (const n of state.notes) boxes.push([n.x, n.y, n.x + n.w, n.y + noteHeight(n) + NOTE_TAIL]);
+  // Routed wires can swing well outside their endpoints once they escape a board
+  // or carry a hand bend, so include what is actually drawn.
+  for (const el of wireLayer.querySelectorAll("path[data-wire]:not([data-wire-hit])")) {
+    try {
+      const b = el.getBBox();
+      if (b && isFinite(b.x)) boxes.push([b.x, b.y, b.x + b.width, b.y + b.height]);
+    } catch (e) { /* not laid out yet */ }
+  }
   if (!boxes.length) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const b of boxes) {
@@ -1806,6 +1814,18 @@ function buildReport() {
   const mat = clone.querySelector("#mat"); if (mat) mat.remove();
   clone.querySelectorAll("[data-pin], [data-wire-hit]").forEach(el => el.remove());
   clone.querySelectorAll("#wireLayer path").forEach(p => { if (!p.dataset.wire) p.remove(); });
+  // A white or pale jumper is invisible on white paper. Lay a dark casing under
+  // every wire and keep the colour as the core, so hue still reads but the run
+  // is always visible.
+  clone.querySelectorAll("#wireLayer path[data-wire]").forEach(p => {
+    const casing = p.cloneNode(false);
+    casing.removeAttribute("data-wire");
+    casing.setAttribute("stroke", "#16324a");
+    casing.setAttribute("stroke-width", "4.4");
+    casing.setAttribute("stroke-opacity", "0.95");
+    casing.setAttribute("data-casing", "1");
+    p.parentNode.insertBefore(casing, p);
+  });
 
   const pad = 44;
   const vb = [b.minX - pad, b.minY - pad, b.w + pad * 2, b.h + pad * 2].join(" ");
@@ -1815,9 +1835,11 @@ function buildReport() {
   const rows = state.wires.map((w, i) => {
     const a = findPin(w.from), z = findPin(w.to);
     if (!a || !z) return "";
+    const pinCell = (pin) => '<td class="pin">' + esc(pin.name) +
+          (pin.num ? '<span class="pnum">' + esc(pin.num) + '</span>' : '') + '</td>';
     return '<tr><td class="n">' + (i + 1) + '</td><td>' + esc(a.comp.label) + '</td>' +
-           '<td class="pin">' + esc(a.pin.name) + '</td><td>' + esc(z.comp.label) + '</td>' +
-           '<td class="pin">' + esc(z.pin.name) + '</td><td class="col">' +
+           pinCell(a.pin) + '<td>' + esc(z.comp.label) + '</td>' + pinCell(z.pin) +
+           '<td class="col">' +
            '<span class="sw" style="background:' + esc(w.color) + '"></span>' + esc(colorName(w.color)) +
            '</td></tr>';
   }).join("");
@@ -1861,7 +1883,7 @@ function buildReport() {
       '</div>' +
       '<h2>Wire schedule</h2>' +
       (rows
-        ? '<table><thead><tr><th></th><th>From</th><th>Pin</th><th>To</th><th>Pin</th><th>Color</th></tr></thead><tbody>' + rows + '</tbody></table>'
+        ? '<table><thead><tr><th></th><th>From</th><th>Pin · #</th><th>To</th><th>Pin · #</th><th>Color</th></tr></thead><tbody>' + rows + '</tbody></table>'
         : '<p class="none">No connections on this drawing.</p>') +
       '<h2>Notes</h2>' + notes +
     '</div></div>';
@@ -1891,9 +1913,17 @@ const REPORT_CSS = `
 #reportOverlay svg.dwg #compLayer ellipse,
 #reportOverlay svg.dwg #compLayer polygon { fill:#ffffff !important; stroke:#16324a !important; stroke-width:1.3 !important; }
 #reportOverlay svg.dwg #compLayer text { fill:#16324a !important; }
+/* Silhouette marks are line/circle/path, not rect — without these they keep
+   their pale screen ink and disappear on white paper. */
+#reportOverlay svg.dwg #compLayer line,
+#reportOverlay svg.dwg #compLayer path,
+#reportOverlay svg.dwg #compLayer circle { stroke:#16324a !important; stroke-opacity:.75 !important; }
+#reportOverlay svg.dwg #compLayer path[fill]:not([fill="none"]),
+#reportOverlay svg.dwg #compLayer circle[fill]:not([fill="none"]) { fill:#16324a !important; fill-opacity:.2 !important; }
 #reportOverlay svg.dwg #noteLayer rect { fill:#fffbe6 !important; stroke:#b08b34 !important; }
 #reportOverlay svg.dwg #noteLayer text { fill:#4a3d1c !important; }
 #reportOverlay svg.dwg #wireLayer path { stroke-width:2.4 !important; }
+#reportOverlay svg.dwg #wireLayer path[data-casing] { stroke-width:4.4 !important; }
 #reportOverlay .title { display:flex; margin-top:4mm; border:1.5px solid #16324a; }
 #reportOverlay .title div { padding:2.5mm 3mm; border-right:1px solid #16324a; font-size:10pt; }
 #reportOverlay .title div:last-child { border-right:0; }
@@ -1907,6 +1937,8 @@ const REPORT_CSS = `
 #reportOverlay td { border:1px solid #d5dee5; padding:1.4mm 2mm; }
 #reportOverlay td.n { width:8mm; color:#7b8b99; text-align:right; }
 #reportOverlay td.pin { font-family:var(--mono); font-size:8pt; }
+#reportOverlay .pnum { margin-left:6px; padding:0 3px; border:1px solid #b9c6d2; border-radius:3px;
+                       font-size:6.8pt; color:#41586b; }
 #reportOverlay td.col { white-space:nowrap; }
 #reportOverlay .sw { display:inline-block; width:9px; height:9px; border-radius:2px; border:1px solid rgba(0,0,0,.35); margin-right:5px; vertical-align:-1px; }
 #reportOverlay .notes { margin:0; padding-left:6mm; font-size:9pt; }
@@ -1914,6 +1946,13 @@ const REPORT_CSS = `
 #reportOverlay .none { font-size:9pt; color:#7b8b99; margin:0; }
 @media print {
   .app { display:none !important; }
+  /* A 47-row schedule always spans pages: keep the drawing on its own sheet,
+     repeat the header, and never split a row, a note or a heading. */
+  #reportOverlay .dwgwrap { break-after:page; page-break-after:always; }
+  #reportOverlay thead { display:table-header-group; }
+  #reportOverlay tr, #reportOverlay .notes li { break-inside:avoid; page-break-inside:avoid; }
+  #reportOverlay h2 { break-after:avoid; page-break-after:avoid; }
+  #reportOverlay .title { break-inside:avoid; page-break-inside:avoid; }
   #reportOverlay { position:static !important; overflow:visible !important; background:#fff !important; }
   #reportOverlay .rbar { display:none !important; }
   #reportOverlay .sheet { width:auto !important; max-width:none !important; margin:0 !important; padding:0 !important; box-shadow:none !important; }
