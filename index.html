@@ -2059,11 +2059,14 @@ function toast(msg) {
 function optimizeRouting(quiet) {
   const n = state.wires.filter(w => w.waypoints && w.waypoints.length).length;
   for (const w of state.wires) delete w.waypoints;
-  const v = (state.wireVariant || 0) % WIRE_ROUTINGS.length;
-  renderAll();                       // render with v, then advance
-  state.wireVariant = (v + 1) % WIRE_ROUTINGS.length;
+  // state.wireVariant is read on every render, so it has to mean "the routing
+  // currently on screen". Advancing it after rendering left the next variant in
+  // state, and the following redraw silently changed the picture.
+  const shown = ((state.wireVariant || 0) + 1) % WIRE_ROUTINGS.length;
+  state.wireVariant = shown;
+  renderAll();
   if (!quiet) {
-    toast("Routing " + (v + 1) + " of " + WIRE_ROUTINGS.length + " — " + WIRE_ROUTINGS[v] +
+    toast("Routing " + (shown + 1) + " of " + WIRE_ROUTINGS.length + " — " + WIRE_ROUTINGS[shown] +
           (n ? ". Reset " + n + " hand-routed wire" + (n === 1 ? "" : "s") + "."
              : ". Optimize again for another."));
   }
@@ -2878,9 +2881,13 @@ function snapshot() {
 const HISTORY_LIMIT = 60;
 let past = [], future = [], restoring = false;
 
+// Everything that changes what is drawn, so undo restores the picture exactly.
+// View and selection are deliberately excluded.
 function historySnapshot() {
   return JSON.stringify({ components: state.components, wires: state.wires,
-                          notes: state.notes, routing: state.routing });
+                          notes: state.notes, routing: state.routing,
+                          labelPos: state.labelPos, gridMM: state.gridMM,
+                          tidyVariant: state.tidyVariant, wireVariant: state.wireVariant });
 }
 let lastCommitted = null;
 function commitHistory(label) {
@@ -2900,6 +2907,10 @@ function applyHistory(raw) {
   restoring = true;
   state.components = d.components; state.wires = d.wires; state.notes = d.notes;
   state.routing = d.routing || "tidy";
+  state.labelPos = d.labelPos || "banner";
+  state.gridMM = +d.gridMM || 0;
+  state.tidyVariant = +d.tidyVariant || 0;
+  state.wireVariant = +d.wireVariant || 0;
   selectOnly(null, null); state.armedPin = null; drag = null;
   const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
   const lp = document.getElementById("labelPos"); if (lp) lp.value = state.labelPos;
@@ -2998,8 +3009,14 @@ function validateLayout(d) {
   for (const n of (Array.isArray(d.notes) ? d.notes : [])) {
     if (!n || !n.id || seenNote.has(n.id)) { problems.push("bad or duplicate note"); continue; }
     seenNote.add(n.id);
-    outNotes.push({ id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0,
-                    w: clampNum(n.w, 120, 460), text: String(n.text == null ? "" : n.text) });
+    const note = { id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0,
+                   w: clampNum(n.w, 120, 460), text: String(n.text == null ? "" : n.text) };
+    // Appearance is part of the note. Leaving these out meant every Load and
+    // every session restore quietly reset a styled note to plain paper.
+    if (NOTE_PAPERS.some(pp => pp[0] === n.paper)) note.paper = n.paper;
+    if (NOTE_FONTS.some(ff => ff[0] === n.font))   note.font  = n.font;
+    if ([9.5, 11.5, 13.5, 16].includes(+n.fs))     note.fs    = +n.fs;
+    outNotes.push(note);
   }
   // Never trust a saved seq: derive it from the ids actually present.
   let maxSeq = 0;

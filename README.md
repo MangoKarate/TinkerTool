@@ -57,12 +57,11 @@ from any device at your Pages URL.
 - **Wire numbers** — each wire carries its schedule number in a small badge on
   the run itself, repeated about every 300px up to five times, so a long wire
   can be identified anywhere along its length and matched to the printed table.
-- **Optimize** — replaces Tidy. Choose Routing, Placement or Both. Each press
-  offers a different arrangement, and Routing also clears hand-placed waypoints.
-- **Optimize** — shuffles rather than settles. Each press offers a different
-  arrangement: four board placements (nudge in place, columns, rows, columns
-  ordered by how many wires a board carries) and four routing styles (channel
-  position, which edge wires escape around, lane order).
+- **Optimize** — replaces Tidy, and shuffles rather than settles. Choose
+  Routing, Placement or Both; each press offers a different arrangement — four
+  board placements (nudge in place, columns, rows, columns ordered by how many
+  wires a board carries) and four routing styles (channel position, which edge
+  wires escape around, lane order). Routing also clears hand-placed waypoints.
 - **Colors** — pick from the classic jumper-wire palette (or a custom color);
   every wire's color is editable afterward. Components take a color too, from a
   preset row or a picker; labels flip between light and dark ink automatically
