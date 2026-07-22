@@ -479,7 +479,7 @@ function pinPos(comp, pin) {
   const idx = side.indexOf(pin);
   const frac = (idx + 1) / (side.length + 1);
   const shape = comp.shape || "rect";
-  if (shape === "circle") {
+  if (shape === "circle" || shape === "ecap") {
     const cx = comp.x + comp.w / 2, cy = comp.y + comp.h / 2;
     const rx = comp.w / 2, ry = comp.h / 2;
     if (pin.side === "left" || pin.side === "right") {
@@ -492,6 +492,24 @@ function pinPos(comp, pin) {
     const t = Math.min(1, Math.abs(x - cx) / rx);
     const dy = ry * Math.sqrt(Math.max(0, 1 - t * t));
     return { x: x, y: pin.side === "top" ? cy - dy : cy + dy };
+  }
+  const rxf = SHAPE_RX[shape];
+  if (rxf) {
+    // Follow the corner arc instead of the box, or outer pins float off a
+    // stadium or a heavily rounded body.
+    const r = Math.min(rxf * Math.min(comp.w, comp.h), Math.min(comp.w, comp.h) / 2);
+    if (pin.side === "left" || pin.side === "right") {
+      const y = comp.y + comp.h * frac;
+      const dTop = (comp.y + r) - y, dBot = y - (comp.y + comp.h - r);
+      const d = Math.max(dTop, dBot, 0);
+      const inset = d > 0 ? r - Math.sqrt(Math.max(0, r * r - d * d)) : 0;
+      return { x: pin.side === "left" ? comp.x + inset : comp.x + comp.w - inset, y: y };
+    }
+    const x = comp.x + comp.w * frac;
+    const dL = (comp.x + r) - x, dR = x - (comp.x + comp.w - r);
+    const d = Math.max(dL, dR, 0);
+    const inset = d > 0 ? r - Math.sqrt(Math.max(0, r * r - d * d)) : 0;
+    return { x: x, y: pin.side === "top" ? comp.y + inset : comp.y + comp.h - inset };
   }
   const outline = SHAPE_PTS[shape];
   if (outline) {
@@ -524,16 +542,28 @@ const WIRE_STUB = 16, WIRE_RADIUS = 9, WIRE_CLEAR = 22, WIRE_LANE = 9;
 
 // When a pin points away from where the wire has to go, step clear of the board
 // first rather than cutting straight back across it.
-function escapePts(pt, side, comp, targetX) {
+function escapePts(pt, side, comp, targetX, targetY) {
   if (!comp) return [];
-  const overTop = comp.y - WIRE_CLEAR, underBottom = comp.y + comp.h + WIRE_CLEAR;
-  const facingAway =
-    (side === "left"  && targetX > comp.x + comp.w) ||
-    (side === "right" && targetX < comp.x);
+  const flip = (state.wireVariant || 0) % 2 === 1;
+  if (side === "left" || side === "right") {
+    const facingAway = (side === "left"  && targetX > comp.x + comp.w) ||
+                       (side === "right" && targetX < comp.x);
+    if (!facingAway) return [];
+    const overTop = comp.y - WIRE_CLEAR, underBottom = comp.y + comp.h + WIRE_CLEAR;
+    let ey = Math.abs(pt.y - overTop) <= Math.abs(pt.y - underBottom) ? overTop : underBottom;
+    if (flip) ey = (ey === overTop) ? underBottom : overTop;
+    return [{ x: pt.x, y: ey }];
+  }
+  // A top pin whose target is below, or a bottom pin whose target is above,
+  // faces away just as much — it used to route straight back through the board.
+  if (targetY === undefined) return [];
+  const facingAway = (side === "top"    && targetY > comp.y + comp.h) ||
+                     (side === "bottom" && targetY < comp.y);
   if (!facingAway) return [];
-  let ey = Math.abs(pt.y - overTop) <= Math.abs(pt.y - underBottom) ? overTop : underBottom;
-  if ((state.wireVariant || 0) % 2 === 1) ey = (ey === overTop) ? underBottom : overTop;
-  return [{ x: pt.x, y: ey }];
+  const offLeft = comp.x - WIRE_CLEAR, offRight = comp.x + comp.w + WIRE_CLEAR;
+  let ex = Math.abs(pt.x - offLeft) <= Math.abs(pt.x - offRight) ? offLeft : offRight;
+  if (flip) ex = (ex === offLeft) ? offRight : offLeft;
+  return [{ x: ex, y: pt.y }];
 }
 
 // Turn a polyline into a path with small rounded corners: straight runs, gentle turns.
@@ -603,19 +633,35 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
              hSort: (a.y + b.y) / 2, vSort: 0, axis: "both" };
   }
 
-  const ea = escapePts(p1, aSide, ca, b.x);
-  const eb = escapePts(p2, bSide, cb, a.x);
+  const ea = escapePts(p1, aSide, ca, b.x, b.y);
+  const eb = escapePts(p2, bSide, cb, a.x, a.y);
   let hKey = null, vKey = null, hSort = 0, vSort = 0;
 
+  // A sideways step only ever comes from a top/bottom pin. Deciding this by
+  // geometry misfired: a left pin's stub already sits outside the box in x, so
+  // every left/right escape was misread as sideways and lost its geometry.
+  const sideways = (e, side) => e.length && (side === "top" || side === "bottom");
   if (ea.length) {
-    const base = ea[0].y;
-    hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2;
-    ea[0] = { x: ea[0].x, y: base + (base < ca.y ? -hOut : hOut) + by };
+    if (sideways(ea, aSide)) {                       // stepped left/right of the board
+      const base = ea[0].x;
+      vKey = "ex:" + Math.round(base / 4); vSort = (p1.y + p2.y) / 2;
+      ea[0] = { x: base + (base < ca.x ? -vOut : vOut) + bx, y: ea[0].y };
+    } else {
+      const base = ea[0].y;
+      hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2;
+      ea[0] = { x: ea[0].x, y: base + (base < ca.y ? -hOut : hOut) + by };
+    }
   }
   if (eb.length) {
-    const base = eb[0].y;
-    if (!hKey) { hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2; }
-    eb[0] = { x: eb[0].x, y: base + (base < cb.y ? -hOut : hOut) };
+    if (sideways(eb, bSide)) {
+      const base = eb[0].x;
+      if (!vKey) { vKey = "ex:" + Math.round(base / 4); vSort = (p1.y + p2.y) / 2; }
+      eb[0] = { x: base + (base < cb.x ? -vOut : vOut), y: eb[0].y };
+    } else {
+      const base = eb[0].y;
+      if (!hKey) { hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2; }
+      eb[0] = { x: eb[0].x, y: base + (base < cb.y ? -hOut : hOut) };
+    }
   }
 
   const s1 = ea.length ? ea[ea.length - 1] : p1;
@@ -628,8 +674,13 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
   const mid = [];
   let axis = "both";
   if (ea.length || eb.length) {
-    vKey = "vx:" + Math.round(s2.x / 4); vSort = (s1.y + s2.y) / 2;
-    const cx = s2.x + (eb.length ? 0 : nb[0] * vOut) + bx;
+    // A sideways escape has already claimed the vertical channel; otherwise the
+    // drop into the destination is it.
+    if (!vKey) { vKey = "vx:" + Math.round(s2.x / 4); vSort = (s1.y + s2.y) / 2; }
+    // Both ends get a lane. This offset used to be zeroed whenever the
+    // destination escaped, so every wire into that board fell down the same x
+    // and buried the ones underneath.
+    const cx = s2.x + nb[0] * vOut + bx;
     mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
   } else if (leaveH && enterH) {
     const base = s1.x + (s2.x - s1.x) * channelFrac();
@@ -768,7 +819,7 @@ function renderBoard() {
 
     const shape = c.shape || "rect";
     let body;
-    if (shape === "circle") {
+    if (shape === "circle" || shape === "ecap") {
       body = document.createElementNS(SVGNS, "ellipse");
       body.setAttribute("cx", c.x + c.w / 2); body.setAttribute("cy", c.y + c.h / 2);
       body.setAttribute("rx", c.w / 2); body.setAttribute("ry", c.h / 2);
@@ -1404,7 +1455,7 @@ svg.addEventListener("pointerdown", (e) => {
     const n = state.notes.find(x => x.id === noteEl.dataset.noteBody);
     selectOnly("note", n.id);
     const w = toWorld(e.clientX, e.clientY);
-    drag = { type: "note", id: n.id, dx: w.x - n.x, dy: w.y - n.y, moved: false };
+    drag = { type: "note", id: n.id, dx: w.x - n.x, dy: w.y - n.y, moved: false, pointerId: e.pointerId };
     svg.setPointerCapture(e.pointerId);
     renderAll();
     return;
@@ -1422,7 +1473,7 @@ svg.addEventListener("pointerdown", (e) => {
     if (w) {
       const pt = toWorld(e.clientX, e.clientY);
       const b0 = w.bend || { x: 0, y: 0 };
-      drag = { type: "wire", id: w.id, sx: pt.x, sy: pt.y, bx: b0.x, by: b0.y, moved: false };
+      drag = { type: "wire", id: w.id, sx: pt.x, sy: pt.y, bx: b0.x, by: b0.y, moved: false, pointerId: e.pointerId };
       selectOnly("wire", w.id);
       svg.setPointerCapture(e.pointerId);
       renderAll();
@@ -1433,22 +1484,24 @@ svg.addEventListener("pointerdown", (e) => {
     const c = state.components.find(c => c.id === bodyEl.dataset.body);
     selectOnly("comp", c.id);
     const w = toWorld(e.clientX, e.clientY);
-    drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false };
+    drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false, pointerId: e.pointerId };
     svg.setPointerCapture(e.pointerId);
     renderAll();
     return;
   }
   // empty space -> pan (and deselect)
-  drag = { type: "pan", sx: e.clientX, sy: e.clientY, ox: state.view.x, oy: state.view.y, moved: false };
+  drag = { type: "pan", sx: e.clientX, sy: e.clientY, ox: state.view.x, oy: state.view.y, moved: false, pointerId: e.pointerId };
   svg.classList.add("panning");
   svg.setPointerCapture(e.pointerId);
 });
 
 svg.addEventListener("pointermove", (e) => {
   if (!drag) return;
+  if (drag.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
   if (drag.type === "comp") {
     const w = toWorld(e.clientX, e.clientY);
     const c = state.components.find(c => c.id === drag.id);
+    if (!c) { endDrag(); return; }              // deleted mid-drag
     c.x = w.x - drag.dx; c.y = w.y - drag.dy;   // snapped on release, not here
     drag.moved = true;
     renderBoard();
@@ -1469,6 +1522,7 @@ svg.addEventListener("pointermove", (e) => {
   } else if (drag.type === "note") {
     const w = toWorld(e.clientX, e.clientY);
     const n = state.notes.find(x => x.id === drag.id);
+    if (!n) { endDrag(); return; }              // deleted mid-drag
     n.x = w.x - drag.dx; n.y = w.y - drag.dy;   // snapped on release, not here
     drag.moved = true;
     renderBoard();
@@ -1480,7 +1534,12 @@ svg.addEventListener("pointermove", (e) => {
   }
 });
 
+function endDrag() { svg.classList.remove("panning"); drag = null; }
+svg.addEventListener("pointercancel", endDrag);
+svg.addEventListener("lostpointercapture", () => { if (drag) endDrag(); });
+
 svg.addEventListener("pointerup", (e) => {
+  if (drag && drag.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
   if (drag && drag.type === "pan" && !drag.moved) {
     // clicked empty -> deselect & disarm
     selectOnly(null, null); state.armedPin = null; renderAll();
@@ -1495,8 +1554,7 @@ svg.addEventListener("pointerup", (e) => {
   } else if (drag && drag.moved && drag.type === "wire") {
     renderAll();
   }
-  svg.classList.remove("panning");
-  drag = null;
+  endDrag();
 });
 
 svg.addEventListener("dblclick", (e) => {
