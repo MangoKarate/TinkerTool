@@ -216,7 +216,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.5</span>
+      <span class="ver" id="verTag">v2.6</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -556,6 +556,91 @@ function pinPos(comp, pin) {
   }
 }
 const SIDE_NORMAL = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
+
+// ---------- Pin kinds ----------
+// Bench convention: red is supply, grey-black is ground. Everything else stays
+// brass so power and ground are the first things the eye finds on a dense board.
+// Ground is a cool grey rather than true black, which would vanish into the
+// block it sits on.
+const PIN_KINDS = {
+  power:  { label: "Power",  pad: "#d94141" },
+  gnd:    { label: "Ground", pad: "#8b98a6" },
+  gpio:   { label: "GPIO",   pad: "#dcb968" },
+  signal: { label: "Signal", pad: "#6fa8c7" }
+};
+const PIN_KIND_ORDER = ["power", "gnd", "gpio", "signal"];
+
+// A pinout copied off a datasheet already carries its convention in the names,
+// so guess from the name and let an explicit pin.kind override it.
+function guessPinKind(name) {
+  const s = String(name == null ? "" : name).toUpperCase().replace(/[\s_\-]/g, "");
+  if (!s) return "signal";
+  // Grounds are often numbered (GND2) and rails are often written with a decimal
+  // point (3.3V) as well as with the point implied (3V3).
+  if (/^(VSS|GROUND|EARTH|0V)$/.test(s) || /GND\d*$/.test(s)) return "gnd";
+  if (/^(VCC|VDD|VIN|VBUS|VSYS|VBAT|VMOT|VREF|VOUT|PWR|POWER)/.test(s)) return "power";
+  if (/^\d+(\.\d+)?V\d*(OUT|IN)?$/.test(s) || /^V\+$/.test(s)) return "power";
+  if (/^(GPIO|GP|IO|D|A|P)\d+/.test(s)) return "gpio";
+  return "signal";
+}
+function pinKind(p) {
+  return (p && p.kind && PIN_KINDS[p.kind]) ? p.kind : guessPinKind(p && p.name);
+}
+
+// A pin needs room for its pad and its label. Below this pitch they overlap,
+// which is what a hand-added row of pins used to do to an 80px-tall block.
+const PIN_PITCH = 24, PIN_PITCH_TB = 48, PIN_ENDS = 26;
+
+function sideCount(c, side) { return c.pins.filter(p => p.side === side).length; }
+
+// Grow a block until its pins are evenly spaced without touching. Only ever
+// grows: shrinking would undo a size the user set by hand.
+function fitComponent(c) {
+  const minH = Math.max(70, Math.max(sideCount(c, "left"), sideCount(c, "right")) * PIN_PITCH + PIN_ENDS);
+  const minW = Math.max(90, Math.max(sideCount(c, "top"), sideCount(c, "bottom")) * PIN_PITCH_TB + PIN_ENDS);
+  let grew = false;
+  if (c.h < minH) { c.h = minH; grew = true; }
+  if (c.w < minW) { c.w = minW; grew = true; }
+  if (c.shape === "circle" || c.shape === "diamond") {
+    const s = Math.max(c.w, c.h);
+    if (c.w !== s || c.h !== s) { c.w = c.h = s; grew = true; }
+  }
+  return grew;
+}
+
+// Lay pins out over the block. "dip" is the IC convention every datasheet draws
+// — pin 1 top-left, numbering counter-clockwise down the left and back up the
+// right. "split" keeps both columns reading top to bottom, which suits a
+// breakout whose headers are labelled in order.
+function arrangePins(c, mode) {
+  if (!c.pins.length) return;
+  if (mode === "single") {
+    for (const p of c.pins) p.side = "left";
+  } else {
+    const half = Math.ceil(c.pins.length / 2);
+    c.pins.forEach((p, i) => p.side = i < half ? "left" : "right");
+    if (mode === "dip") {
+      // pinPos lays each side out in array order, so reversing the right-hand
+      // group is what makes its numbering run bottom to top.
+      c.pins = c.pins.slice(0, half).concat(c.pins.slice(half).reverse());
+    }
+  }
+  fitComponent(c);
+}
+
+// Power first, then ground, then GPIO, then everything else — within each side
+// and stable, so a datasheet's own order survives inside a kind. Opt-in only:
+// the order pins come in is a property of the real part, not ours to change.
+function groupPinsByKind(c) {
+  const rank = p => PIN_KIND_ORDER.indexOf(pinKind(p));
+  const out = [];
+  for (const side of ["left", "right", "top", "bottom"]) {
+    const on = c.pins.filter(p => p.side === side);
+    on.sort((a, b) => rank(a) - rank(b));
+    out.push(...on);
+  }
+  c.pins = out;
+}
 
 function findPin(pinId) {
   for (const c of state.components) {
@@ -1100,7 +1185,7 @@ function renderBoard() {
       const pad = document.createElementNS(SVGNS, "circle");
       pad.setAttribute("cx", pos.x); pad.setAttribute("cy", pos.y);
       pad.setAttribute("r", isArmed ? "7" : "5.5");
-      pad.setAttribute("fill", isArmed ? "var(--accent)" : "#dcb968");
+      pad.setAttribute("fill", isArmed ? "var(--accent)" : PIN_KINDS[pinKind(p)].pad);
       pad.setAttribute("stroke", "#14202a"); pad.setAttribute("stroke-width", "1.5");
       pad.setAttribute("pointer-events", "none");
       g.appendChild(pad);
@@ -1509,9 +1594,37 @@ function renderEditor() {
   ph.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px;";
   const pht = document.createElement("span");
   pht.textContent = "PINS"; pht.style.cssText = "font-size:10.5px;letter-spacing:.14em;color:var(--ink-mut);font-weight:600;";
+  const arr = document.createElement("button"); arr.className = "tiny"; arr.textContent = "Arrange\u2026";
+  arr.title = "Re-lay the pins out evenly, or group them by kind";
+  arr.onclick = (e) => {
+    const r = arr.getBoundingClientRect();
+    openCtxMenu(r.left, r.bottom + 4, [
+      { label: "Two columns, IC order", run: () => { arrangePins(c, "dip"); renderAll(); } },
+      { label: "Two columns, top to bottom", run: () => { arrangePins(c, "split"); renderAll(); } },
+      { label: "One column, left", run: () => { arrangePins(c, "single"); renderAll(); } },
+      { sep: true },
+      { label: "Group by kind", run: () => { groupPinsByKind(c); fitComponent(c); renderAll();
+          toast("Pins grouped: power, ground, GPIO, then signals."); } },
+      { label: "Grow block to fit pins", run: () => {
+          toast(fitComponent(c) ? "Block resized to space the pins evenly."
+                                : "Already big enough for its pins."); renderAll(); } }
+    ]);
+  };
   const addP = document.createElement("button"); addP.className = "tiny primary"; addP.textContent = "+ Pin";
-  addP.onclick = () => { c.pins.push({ id: uid("pin"), name: "P" + (c.pins.length + 1), side: "right" }); renderAll(); };
-  ph.appendChild(pht); ph.appendChild(addP);
+  addP.title = "Add a pin to whichever side has fewer";
+  addP.onclick = () => {
+    // Balance the two columns rather than piling every new pin on the right,
+    // which used to crush them together on a block that never grew.
+    const side = sideCount(c, "left") <= sideCount(c, "right") ? "left" : "right";
+    c.pins.push({ id: uid("pin"), name: "P" + (c.pins.length + 1),
+                  num: String(c.pins.length + 1), side: side });
+    fitComponent(c);
+    renderAll();
+  };
+  const grp = document.createElement("span");
+  grp.style.cssText = "display:flex;gap:5px;";
+  grp.appendChild(arr); grp.appendChild(addP);
+  ph.appendChild(pht); ph.appendChild(grp);
   ed.appendChild(ph);
 
   if (!c.pins.length) {
@@ -1546,7 +1659,7 @@ function renderEditor() {
       const o = document.createElement("option"); o.value = s; o.textContent = s;
       if (p.side === s) o.selected = true; side.appendChild(o);
     }
-    side.onchange = () => { p.side = side.value; renderBoard(); markDirty(); };
+    side.onchange = () => { p.side = side.value; fitComponent(c); renderAll(); };
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
     del.setAttribute("aria-label", "Delete pin " + (p.name || ""));
     del.onclick = () => { deletePin(c, p.id); };
@@ -1733,14 +1846,31 @@ function openShapePicker() {
     shapeEl.addEventListener("click", e => { if (e.target === shapeEl) closeShapePicker(); });
     shapeEl.querySelector("#shapeX").onclick = closeShapePicker;
     shapeEl.querySelectorAll("[data-shape]").forEach(card => {
-      card.onclick = () => { closeShapePicker(); addComponent(card.dataset.shape); };
+      card.onclick = () => {
+        const sh = card.dataset.shape;
+        closeShapePicker();
+        // A resistor has two leads and always will; a breakout's pin count is a
+        // choice, so only ask where the answer is not already known.
+        if (SHAPE_LEADS[sh]) addComponent(sh); else openPinSetup(sh);
+      };
     });
   }
   shapeEl.classList.add("show");
 }
 function closeShapePicker() { if (shapeEl) shapeEl.classList.remove("show"); }
 
-function addComponent(shape) {
+// Packages whose lead count is fixed, with the names their datasheets use.
+// Anything not listed has a pin count that is a choice, so we ask.
+const SHAPE_LEADS = {
+  resistor: ["1", "2"],    button: ["1", "2"],   diode:  ["A", "K"],
+  led:      ["A", "K"],    ecap:   ["+", "-"],   ecan:   ["+", "-"],
+  speaker:  ["+", "-"],    barrel: ["V+", "GND"],
+  to92:     ["1", "2", "3"],  to220: ["IN", "GND", "OUT"],
+  servo:    ["SIG", "V+", "GND"], pot: ["1", "W", "2"],
+  diamond:  ["A", "B", "C"]
+};
+
+function addComponent(shape, spec) {
   shape = shape || "rect";
   const center = toWorld(svg.getBoundingClientRect().left + svg.clientWidth * 0.4,
                          svg.getBoundingClientRect().top + svg.clientHeight * 0.4);
@@ -1748,18 +1878,91 @@ function addComponent(shape) {
   const square = (shape === "circle" || shape === "diamond");
   const comp = {
     id: uid("c"), x: snap(center.x - 60), y: snap(center.y - 40),
-    w: square ? 120 : 120, h: square ? 120 : 80, shape: shape, label: "Part " + n,
-    pins: [
-      { id: uid("pin"), name: "1", side: "left" },
-      { id: uid("pin"), name: "2", side: "left" },
-      { id: uid("pin"), name: "3", side: "right" },
-      { id: uid("pin"), name: "4", side: "right" }
-    ]
+    w: 120, h: square ? 120 : 80, shape: shape, label: "Part " + n, pins: []
   };
+  const leads = SHAPE_LEADS[shape];
+  if (spec) {
+    const pre = spec.prefix == null ? "" : spec.prefix;
+    for (let i = 0; i < spec.count; i++)
+      comp.pins.push({ id: uid("pin"), name: pre + (i + 1), num: String(i + 1), side: "left" });
+    arrangePins(comp, spec.arrange || "dip");
+  } else if (leads) {
+    for (let i = 0; i < leads.length; i++)
+      comp.pins.push({ id: uid("pin"), name: leads[i], num: String(i + 1), side: "left" });
+    // Two leads read best straight across an axial part; three or more want a
+    // column each side.
+    arrangePins(comp, leads.length <= 2 ? "split" : "dip");
+  } else {
+    for (let i = 0; i < 4; i++)
+      comp.pins.push({ id: uid("pin"), name: String(i + 1), num: String(i + 1), side: "left" });
+    arrangePins(comp, "dip");
+  }
+  fitComponent(comp);
   state.components.push(comp);
   selectOnly("comp", comp.id);
   renderAll();
 }
+
+// Step two of adding a component: how many pins, and how they sit. Shown only
+// for parts whose pin count is not fixed by the package.
+let pinSetupEl = null;
+function openPinSetup(shape) {
+  const meta = SHAPES.find(s => s[0] === shape);
+  if (!pinSetupEl) {
+    pinSetupEl = document.createElement("div");
+    pinSetupEl.className = "lib-backdrop";
+    pinSetupEl.innerHTML =
+      '<div class="lib-modal" style="max-width:430px;">' +
+        '<div class="lib-head"><h3 id="psTitle">Pins</h3>' +
+        '<button class="close" id="psX">&#10005;</button></div>' +
+        '<div class="lib-body">' +
+          '<div class="row" style="gap:8px;">' +
+            '<label class="fld" style="flex:1;"><span>How many pins</span>' +
+            '<input id="psN" type="number" min="0" max="80" value="8"></label>' +
+            '<label class="fld" style="flex:1;"><span>Name prefix</span>' +
+            '<input id="psPrefix" type="text" value="P" placeholder="P"></label>' +
+          '</div>' +
+          '<label class="fld" style="margin-top:8px;display:block;"><span>Arrangement</span>' +
+            '<select id="psArr">' +
+              '<option value="dip">Two columns, IC order &mdash; pin 1 top left, counter-clockwise</option>' +
+              '<option value="split">Two columns, both reading top to bottom</option>' +
+              '<option value="single">One column down the left</option>' +
+            '</select></label>' +
+          '<div style="margin-top:10px;font-size:11.5px;line-height:1.5;color:var(--ink-mut);">' +
+            'Pins are spaced evenly and the block grows to fit them. Double-click any pin ' +
+            'afterwards to rename it, change its side, or mark it as power or ground.</div>' +
+          '<div class="row" style="gap:8px;margin-top:14px;justify-content:flex-end;">' +
+            '<button id="psCancel" class="ghost">Cancel</button>' +
+            '<button id="psAdd" class="primary">Add component</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(pinSetupEl);
+    pinSetupEl.addEventListener("click", e => { if (e.target === pinSetupEl) closePinSetup(); });
+    pinSetupEl.querySelector("#psX").onclick = closePinSetup;
+    pinSetupEl.querySelector("#psCancel").onclick = closePinSetup;
+    pinSetupEl.querySelector("#psAdd").onclick = () => {
+      const count = clampNum(pinSetupEl.querySelector("#psN").value, 0, 80);
+      const spec = { count: count,
+                     prefix: pinSetupEl.querySelector("#psPrefix").value.trim(),
+                     arrange: pinSetupEl.querySelector("#psArr").value };
+      const sh = pinSetupEl.dataset.shape;
+      closePinSetup();
+      addComponent(sh, spec);
+      toast(count ? "Added with " + count + " evenly spaced pin" + (count === 1 ? "" : "s") + "."
+                  : "Added with no pins. Use + Pin to add them.");
+    };
+    pinSetupEl.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); pinSetupEl.querySelector("#psAdd").click(); }
+      if (e.key === "Escape") closePinSetup();
+    });
+  }
+  pinSetupEl.dataset.shape = shape;
+  pinSetupEl.querySelector("#psTitle").textContent = "Pins for " + (meta ? meta[1] : "component");
+  pinSetupEl.classList.add("show");
+  const n = pinSetupEl.querySelector("#psN"); n.focus(); n.select();
+}
+function closePinSetup() { if (pinSetupEl) pinSetupEl.classList.remove("show"); }
 
 // ---------- Pointer interaction ----------
 let drag = null; // {type:'comp'|'pan', ...}
@@ -1903,7 +2106,88 @@ svg.addEventListener("pointerup", (e) => {
   endDrag();
 });
 
+// A small editor anchored to whatever was double-clicked, so a pin can be
+// renamed where it sits instead of hunting for its row in the inspector.
+let pinEdEl = null;
+function closePinEditor() { if (pinEdEl) { pinEdEl.remove(); pinEdEl = null; } }
+function openPinEditor(c, p, clientX, clientY) {
+  closeCtxMenu(); closePinEditor();
+  pinEdEl = document.createElement("div");
+  pinEdEl.id = "pinEditor";
+  pinEdEl.style.cssText =
+    "position:fixed;z-index:9998;width:218px;padding:11px;border-radius:9px;" +
+    "background:var(--chrome-3);border:1px solid var(--line);box-shadow:0 8px 26px rgba(0,0,0,.45);" +
+    "font-size:12.5px;color:var(--ink);";
+  const head = document.createElement("div");
+  head.textContent = c.label;
+  head.style.cssText = "font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;" +
+                       "color:var(--ink-mut);font-weight:600;margin-bottom:9px;";
+  pinEdEl.appendChild(head);
+  const field = (text, el) => {
+    const l = document.createElement("label");
+    l.className = "fld"; l.style.cssText = "display:block;margin-bottom:7px;";
+    const s = document.createElement("span"); s.textContent = text;
+    l.appendChild(s); l.appendChild(el); pinEdEl.appendChild(l); return el;
+  };
+  const num = document.createElement("input");
+  num.type = "text"; num.value = p.num || ""; num.placeholder = "e.g. 39"; num.className = "pin-mono";
+  field("Number", num);
+  num.oninput = () => { p.num = num.value.trim(); renderBoard(); markDirty(); };
+  const name = document.createElement("input");
+  name.type = "text"; name.value = p.name || ""; name.placeholder = "e.g. VSYS"; name.className = "pin-mono";
+  field("Name", name);
+  name.oninput = () => { p.name = name.value; renderBoard(); renderWireList(); markDirty();
+                         autoOpt.textContent = "Auto \u2014 " + PIN_KINDS[guessPinKind(p.name)].label; };
+  const side = document.createElement("select");
+  for (const s of ["left", "right", "top", "bottom"]) {
+    const o = document.createElement("option"); o.value = s; o.textContent = s;
+    if (p.side === s) o.selected = true; side.appendChild(o);
+  }
+  field("Side", side);
+  side.onchange = () => { p.side = side.value; fitComponent(c); renderAll(); };
+  const kind = document.createElement("select");
+  const autoOpt = document.createElement("option");
+  autoOpt.value = ""; autoOpt.textContent = "Auto \u2014 " + PIN_KINDS[guessPinKind(p.name)].label;
+  kind.appendChild(autoOpt);
+  for (const k of PIN_KIND_ORDER) {
+    const o = document.createElement("option"); o.value = k; o.textContent = PIN_KINDS[k].label;
+    if (p.kind === k) o.selected = true; kind.appendChild(o);
+  }
+  field("Kind", kind);
+  kind.onchange = () => { if (kind.value) p.kind = kind.value; else delete p.kind;
+                          renderBoard(); markDirty(); };
+  const del = document.createElement("button");
+  del.className = "tiny danger"; del.textContent = "Delete pin";
+  del.style.cssText = "width:100%;margin-top:3px;";
+  del.onclick = () => { closePinEditor(); deletePin(c, p.id); };
+  pinEdEl.appendChild(del);
+  document.body.appendChild(pinEdEl);
+  const r = pinEdEl.getBoundingClientRect();
+  pinEdEl.style.left = Math.min(clientX + 10, window.innerWidth  - r.width  - 8) + "px";
+  pinEdEl.style.top  = Math.min(clientY + 10, window.innerHeight - r.height - 8) + "px";
+  name.focus(); name.select();
+}
+
 svg.addEventListener("dblclick", (e) => {
+  if (overlayOpen()) return;
+  const pinEl = e.target.closest("[data-pin]");
+  if (pinEl) {
+    const f = findPin(pinEl.dataset.pin);
+    if (!f) return;
+    // The two clicks that got us here already toggled the arm state; clear it so
+    // the next click on another pin does not draw a wire nobody asked for.
+    state.armedPin = null; renderAll();
+    openPinEditor(f.comp, f.pin, e.clientX, e.clientY);
+    return;
+  }
+  const bodyEl = e.target.closest("[data-body]");
+  if (bodyEl) {
+    const c = state.components.find(x => x.id === bodyEl.dataset.body);
+    if (!c) return;
+    const t = prompt("Component name:", c.label);
+    if (t !== null) { c.label = t; renderAll(); }
+    return;
+  }
   const wireEl = e.target.closest("[data-wire]");
   if (!wireEl) return;
   const w = state.wires.find(x => x.id === wireEl.dataset.wire);
@@ -2589,6 +2873,7 @@ svg.addEventListener("contextmenu", (e) => {
 });
 window.addEventListener("pointerdown", (e) => {
   if (ctxEl && !ctxEl.contains(e.target)) closeCtxMenu();
+  if (pinEdEl && !pinEdEl.contains(e.target)) closePinEditor();
 }, true);
 window.addEventListener("blur", closeCtxMenu);
 
@@ -2630,8 +2915,8 @@ function draftToComp(d) {
                            pins.filter(p => p.side === "right").length, 1);
   const tbMax = Math.max(pins.filter(p => p.side === "top").length,
                          pins.filter(p => p.side === "bottom").length, 0);
-  const h = +d.h || Math.max(70, sideMax * 24 + 26);
-  const w = Math.max(+d.w || 130, tbMax * 48 + 26);
+  const h = +d.h || Math.max(70, sideMax * PIN_PITCH + PIN_ENDS);
+  const w = Math.max(+d.w || 130, tbMax * PIN_PITCH_TB + PIN_ENDS);
   return { id: "preview", x: 0, y: 0, w: w, h: h, label: d.name || "Untitled part",
            shape: d.shape, color: d.color, pins: pins };
 }
@@ -2662,7 +2947,8 @@ function renderPartPreview(svgEl, c) {
                "font-family": "var(--mono)", "font-weight": 600 }).textContent = c.label;
   for (const pn of c.pins) {
     const pos = pinPos(c, pn);
-    mk("circle", { cx: pos.x, cy: pos.y, r: 5.5, fill: "#dcb968", stroke: "#14202a", "stroke-width": 1.5 });
+    mk("circle", { cx: pos.x, cy: pos.y, r: 5.5, fill: PIN_KINDS[pinKind(pn)].pad,
+                   stroke: "#14202a", "stroke-width": 1.5 });
     let tx = pos.x, ty = pos.y, anchor = "middle";
     if (pn.side === "left")  { tx = pos.x + 13; anchor = "start"; }
     if (pn.side === "right") { tx = pos.x - 13; anchor = "end"; }
@@ -2895,7 +3181,9 @@ function partPins(p) {
   const pins = [];
   const add = (arr, side) => (arr || []).forEach(n => {
     const o = (typeof n === "string") ? { name: n } : n;
-    pins.push({ id: uid("pin"), name: o.name, num: o.num || "", side });
+    const np = { id: uid("pin"), name: o.name, num: o.num || "", side };
+    if (o.kind && PIN_KINDS[o.kind]) np.kind = o.kind;
+    pins.push(np);
   });
   add(p.left, "left"); add(p.right, "right"); add(p.top, "top"); add(p.bottom, "bottom");
   return pins;
@@ -2928,7 +3216,9 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
 let USER_PARTS = store.get(PARTS_KEY) || [];
-function saveUserParts() { store.set(PARTS_KEY, USER_PARTS); }
+// Must return the result: the save paths below branch on it, and swallowing it
+// made every "Save to library" report that storage was blocked and bail out.
+function saveUserParts() { return store.set(PARTS_KEY, USER_PARTS); }
 function allParts() { return PARTS.concat(USER_PARTS); }
 
 function saveToLibrary(c) {
@@ -2936,7 +3226,11 @@ function saveToLibrary(c) {
   if (!name) return;
   const part = { cat: "My parts", name: name, w: c.w, h: c.h, shape: c.shape || "rect",
                  user: true, left: [], right: [], top: [], bottom: [] };
-  for (const pin of c.pins) part[pin.side].push(pin.num ? { name: pin.name, num: pin.num } : pin.name);
+  for (const pin of c.pins) {
+    part[pin.side].push((pin.num || pin.kind)
+      ? { name: pin.name, num: pin.num || "", kind: pin.kind }
+      : pin.name);
+  }
   if (c.color) part.color = c.color;
   const at = USER_PARTS.findIndex(x => x.name === name);
   if (at >= 0) {
@@ -3078,9 +3372,13 @@ function validateLayout(d) {
       if (!pin || !pin.id) { problems.push("pin without an id on " + c.id); continue; }
       if (seenPin.has(pin.id)) { problems.push("duplicate pin id " + pin.id); continue; }
       seenPin.add(pin.id);
-      pins.push({ id: pin.id, name: String(pin.name == null ? "" : pin.name),
-                  num: String(pin.num == null ? "" : pin.num),
-                  side: ["left","right","top","bottom"].includes(pin.side) ? pin.side : "left" });
+      const kept = { id: pin.id, name: String(pin.name == null ? "" : pin.name),
+                     num: String(pin.num == null ? "" : pin.num),
+                     side: ["left","right","top","bottom"].includes(pin.side) ? pin.side : "left" };
+      // Whitelisted, so anything new has to be added here too or it is silently
+      // stripped on every load — which is exactly how note styling was lost once.
+      if (pin.kind && PIN_KINDS[pin.kind]) kept.kind = pin.kind;
+      pins.push(kept);
     }
     outComps.push({ id: c.id, label: String(c.label == null ? "Part" : c.label),
                     x: Number(c.x) || 0, y: Number(c.y) || 0,

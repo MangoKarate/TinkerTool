@@ -32,9 +32,16 @@ from any device at your Pages URL.
   jack — plus plain rectangle, rounded, circle and a splice marker. Pins follow
   the real outline, so an LED's pins sit on its flange and a TO-92's on its
   curved back.
-- **Components** — or add a blank block and set label, size, colour, and any
-  number of named pins (top / right / bottom / left); pins auto-space along
-  their side and can be reordered or moved to another side.
+- **Components** — adding one asks how many pins it has, unless the package
+  fixes that already (a resistor has two leads and always will). Pins space
+  themselves evenly and the block grows to hold them, so a 30-pin breakout is
+  readable the moment it lands. `Arrange…` re-lays them in IC order, in two
+  plain columns, or in one; `+ Pin` fills whichever column is shorter.
+- **Pin kinds** — every pin is power, ground, GPIO or signal, guessed from its
+  name and overridable. Power pads draw red and ground grey, so the two that
+  matter are findable on a dense board. `Group by kind` gathers them.
+- **Editing** — double-click a pin to change its number, name, side or kind
+  without hunting for its row; double-click a component to rename it.
 - **Pin numbers** — a pin's number is separate from where it sits, so a board
   can keep a readable layout — power down one side, GPIO down the other — while
   still telling you which physical pin to count to. The number draws outside the
@@ -142,6 +149,29 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.6
+- **Saving a part to the library works again.** The save helper never returned
+  its result, so every save reported that the browser was blocking local storage
+  and stopped — after having already written the part. The library never
+  refreshed and the builder never closed, so it looked like nothing happened.
+- **Adding a component asks how many pins it has**, and lays them out evenly.
+  Parts whose lead count is fixed by the package — a resistor, an LED, a TO-220,
+  a servo — skip the question and arrive with their datasheet lead names.
+- **Pins no longer pile up on one side of a block that never grew.** Eleven pins
+  on an 80px body sat 6.7px apart with 11px pads, so they overlapped and their
+  labels stacked. Blocks now grow to hold their pins at a 24px pitch, and `+ Pin`
+  fills whichever column is shorter instead of always the right.
+- **Pins have a kind — power, ground, GPIO or signal** — guessed from the name
+  (`VSYS`, `3V3`, `GND2`, `GP15`) and overridable per pin. Power pads draw red
+  and ground grey, the bench convention, so the two that matter are findable on
+  a crowded board.
+- **Arrange…** re-lays a part's pins: two columns in IC order (pin 1 top left,
+  numbering counter-clockwise), two columns reading top to bottom, or one column.
+  **Group by kind** brings power and ground together. Grouping is opt-in — pin
+  order is a property of the real part, not ours to change silently.
+- **Double-click a pin to edit it** where it sits: number, name, side, kind, or
+  delete. Double-click a component to rename it.
 
 ### v2.5
 - The printed drawing keeps its title block on the same page. The page break
