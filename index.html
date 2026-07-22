@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <link rel="icon" href="TinkerTool.ico" />
 <title>TinkerTool — Wiring Visualizer</title>
 <style>
@@ -82,7 +82,14 @@
 
   /* ---- Canvas ---- */
   .stage { position: relative; overflow: hidden; background: var(--mat); }
-  svg#board { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  svg#board { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none;
+              -webkit-user-select: none; user-select: none; }
+  @media (pointer: coarse) {
+    /* Finger-sized controls; the desktop layout is untouched. */
+    .toolbar button, .toolbar select { min-height: 34px; }
+    .panel button.tiny { min-width: 30px; min-height: 30px; }
+    .lib-card { padding: 14px 12px; }
+  }
   svg#board.panning { cursor: grabbing; }
 
   .hint {
@@ -209,7 +216,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.1</span>
+      <span class="ver" id="verTag">v2.2</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -233,6 +240,10 @@
         <option value="curved">Route: Curved</option>
         <option value="direct">Route: Direct</option>
       </select>
+      <select id="labelPos" title="Where component names sit" style="width:auto;font-size:11.5px;">
+        <option value="banner">Name: banner</option>
+        <option value="inside">Name: inside</option>
+      </select>
       <select id="tidySel" title="Tidy up the board" style="width:auto;font-size:11.5px;">
         <option value="">Tidy…</option>
         <option value="both">Tidy both</option>
@@ -243,6 +254,15 @@
     <div class="tb-sep"></div>
     <label class="row" style="gap:6px; font-size:12px; color:var(--ink-mut); cursor:pointer;">
       <input type="checkbox" id="snap" checked style="width:auto;"> Snap
+    </label>
+    <label class="row" style="gap:6px; font-size:12px; color:var(--ink-mut); cursor:pointer;">
+      <select id="gridMM" title="Canvas grid" style="width:auto;font-size:11.5px;">
+        <option value="0">Grid: screen</option>
+        <option value="1">Grid: 1 mm</option>
+        <option value="2.54">Grid: 2.54 mm (0.1 in)</option>
+        <option value="5">Grid: 5 mm</option>
+        <option value="10">Grid: 10 mm</option>
+      </select>
     </label>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -315,6 +335,8 @@ const state = {
   wires: [],        // {id, from, to, color}   (from/to = pinId)
   notes: [],        // {id, x, y, w, text}
   routing: "tidy",  // "tidy" | "curved" | "direct"
+  labelPos: "banner", // "banner" (above the block) | "inside"
+  gridMM: 0,        // 0 = the plain 24px screen grid, otherwise millimetres
   tidyVariant: 0,   // which board layout Tidy will apply next
   wireVariant: 0,   // which routing style Tidy will apply next
   selected: null,   // component id
@@ -738,8 +760,30 @@ function applyView() {
   world.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.scale})`);
   document.getElementById("zoomVal").textContent = Math.round(v.scale * 100) + "%";
 }
+// One CSS pixel is 1/96 in, so a millimetre is 96/25.4 units at 100% zoom.
+const PX_PER_MM = 96 / 25.4;
+function gridStep() {
+  const mm = +state.gridMM || 0;
+  return mm ? mm * PX_PER_MM : 24;
+}
 function snap(v) {
-  return document.getElementById("snap").checked ? Math.round(v / 24) * 24 : v;
+  const g = gridStep();
+  return document.getElementById("snap").checked ? Math.round(v / g) * g : v;
+}
+// Redraw the mat pattern whenever the grid changes.
+function applyGrid() {
+  const g = gridStep();
+  const mm = +state.gridMM || 0;
+  const pat = document.getElementById("gridPat");
+  if (!pat) return;
+  pat.setAttribute("width", g); pat.setAttribute("height", g);
+  const r = pat.querySelector("rect"), pth = pat.querySelector("path");
+  if (r) { r.setAttribute("width", g); r.setAttribute("height", g); }
+  if (pth) {
+    pth.setAttribute("d", "M" + g + " 0H0V" + g);
+    // A fine millimetre grid needs a lighter line or it reads as a solid wash.
+    pth.setAttribute("stroke-width", mm && mm <= 1 ? 0.5 : 1);
+  }
 }
 
 // ---------- Render: canvas ----------
@@ -875,18 +919,29 @@ function renderBoard() {
     }
 
     const label = document.createElementNS(SVGNS, "text");
+    const banner = (state.labelPos || "banner") === "banner";
     const wideTop = !SHAPE_CENTRE_LABEL[shape];
     label.setAttribute("x", c.x + c.w / 2);
-    label.setAttribute("y", wideTop ? c.y + 15 : c.y + c.h / 2);
+    label.setAttribute("y", banner ? c.y - 13 : (wideTop ? c.y + 15 : c.y + c.h / 2));
     label.setAttribute("text-anchor", "middle"); label.setAttribute("dominant-baseline", "middle");
-    label.setAttribute("fill", ink); label.setAttribute("font-size", "12.5");
+    label.setAttribute("fill", banner ? "#3b4756" : ink);
+    label.setAttribute("font-size", "12.5");
     label.setAttribute("font-family", "var(--mono)"); label.setAttribute("font-weight", "600");
     label.setAttribute("pointer-events", "none");
     label.dataset.fitW = Math.max(20, c.w - 18);
     label.textContent = c.label;
     g.appendChild(label);
 
-    if (wideTop) {
+    if (banner) {
+      const plate = document.createElementNS(SVGNS, "rect");
+      plate.setAttribute("rx", "4");
+      plate.setAttribute("fill", "#eceade");
+      plate.setAttribute("stroke", "#cdcbbd");
+      plate.setAttribute("stroke-width", "1");
+      plate.setAttribute("pointer-events", "none");
+      plate.dataset.plateFor = c.id;
+      g.insertBefore(plate, label);
+    } else if (wideTop) {
       const rule = document.createElementNS(SVGNS, "line");
       rule.setAttribute("x1", c.x + 9); rule.setAttribute("x2", c.x + c.w - 9);
       rule.setAttribute("y1", c.y + 26); rule.setAttribute("y2", c.y + 26);
@@ -901,7 +956,8 @@ function renderBoard() {
       const isArmed = state.armedPin === p.id;
 
       const hit = document.createElementNS(SVGNS, "circle");
-      hit.setAttribute("cx", pos.x); hit.setAttribute("cy", pos.y); hit.setAttribute("r", "11");
+      hit.setAttribute("cx", pos.x); hit.setAttribute("cy", pos.y);
+      hit.setAttribute("r", matchMedia("(pointer: coarse)").matches ? "15" : "11");
       hit.setAttribute("fill", "transparent"); hit.dataset.pin = p.id;
       hit.style.cursor = "crosshair";
       g.appendChild(hit);
@@ -955,8 +1011,10 @@ function renderBoard() {
   }
 
   // Labels are measured only once they are in the document: shrink to fit, then clip.
+  const bannerMode = (state.labelPos || "banner") === "banner";
   compLayer.querySelectorAll("text[data-fit-w]").forEach(el => {
-    const maxW = parseFloat(el.dataset.fitW);
+    // A banner sits outside the block, so it is free to use its full name.
+    const maxW = bannerMode ? 1e6 : parseFloat(el.dataset.fitW);
     let fs = 12.5;
     let len = el.getComputedTextLength();
     while (len > maxW && fs > 8) {
@@ -975,14 +1033,43 @@ function renderBoard() {
     }
   });
 
+  // Fit each banner plate around its finished label.
+  if (bannerMode) {
+    compLayer.querySelectorAll("[data-plate-for]").forEach(plate => {
+      const g = plate.parentNode;
+      const txt = g.querySelector("text[data-fit-w]");
+      if (!txt) { plate.remove(); return; }
+      let b; try { b = txt.getBBox(); } catch (e) { return; }
+      plate.setAttribute("x", b.x - 7); plate.setAttribute("y", b.y - 3);
+      plate.setAttribute("width", b.width + 14); plate.setAttribute("height", b.height + 6);
+    });
+  }
+
   renderNotes();
 }
 
 // ---------- Notes ----------
-const NOTE_PAD = 10, NOTE_LH = 14, NOTE_FS = 11.5, NOTE_TAIL = 12;
+const NOTE_PAD = 10, NOTE_TAIL = 12;
+const NOTE_PAPERS = [
+  ["Paper",  "#fdf3d7", "#c3ab72", "#4a4128"],
+  ["White",  "#ffffff", "#b9c0cc", "#22303d"],
+  ["Blue",   "#dce9f7", "#8fadc9", "#1d3348"],
+  ["Green",  "#dff0dd", "#93b892", "#22401f"],
+  ["Pink",   "#fadde3", "#d29aa8", "#4a2130"],
+  ["Slate",  "#3a4351", "#6d7a8c", "#e8ecf5"]
+];
+const NOTE_FONTS = [["Sans", "var(--sans)"], ["Mono", "var(--mono)"]];
+// Notes carry their own look; these are the fallbacks for notes saved before that.
+function noteStyle(n) {
+  const paper = NOTE_PAPERS.find(p => p[0] === n.paper) || NOTE_PAPERS[0];
+  return { fill: paper[1], edge: paper[2], ink: paper[3],
+           fs: +n.fs || 11.5, font: (NOTE_FONTS.find(f => f[0] === n.font) || NOTE_FONTS[0])[1] };
+}
+function noteLead(fs) { return Math.round(fs * 1.22); }
 
-function wrapNote(text, wPx) {
-  const maxChars = Math.max(8, Math.floor((wPx - NOTE_PAD * 2) / (NOTE_FS * 0.55)));
+function wrapNote(text, wPx, fs) {
+  fs = fs || 11.5;
+  const maxChars = Math.max(8, Math.floor((wPx - NOTE_PAD * 2) / (fs * 0.55)));
   const out = [];
   for (const para of String(text == null ? "" : text).split("\n")) {
     if (!para.trim()) { out.push(""); continue; }
@@ -996,16 +1083,21 @@ function wrapNote(text, wPx) {
   return out.length ? out : [""];
 }
 function noteHeight(n) {
-  return Math.max(34, wrapNote(n.text, n.w).length * NOTE_LH + NOTE_PAD * 2);
+  const st = noteStyle(n);
+  return Math.max(34, wrapNote(n.text, n.w, st.fs).length * noteLead(st.fs) + NOTE_PAD * 2 + 6);
 }
+// Notes are numbered in the order they sit on the page, so a bubble and its
+// line in the printed schedule refer to each other.
+function noteIndex(n) { return state.notes.indexOf(n) + 1; }
 
 function renderNotes() {
   noteLayer.innerHTML = "";
   for (const n of state.notes) {
-    const lines = wrapNote(n.text, n.w);
+    const st = noteStyle(n);
+    const lines = wrapNote(n.text, n.w, st.fs);
     const h = noteHeight(n);
     const sel = n.id === state.selectedNote;
-    const edge = sel ? "var(--accent)" : "#c3ab72";
+    const edge = sel ? "var(--accent)" : st.edge;
     const g = document.createElementNS(SVGNS, "g");
     g.dataset.note = n.id;
 
@@ -1013,7 +1105,7 @@ function renderNotes() {
     box.setAttribute("x", n.x); box.setAttribute("y", n.y);
     box.setAttribute("width", n.w); box.setAttribute("height", h);
     box.setAttribute("rx", "10");
-    box.setAttribute("fill", "#fdf3d7");
+    box.setAttribute("fill", st.fill);
     box.setAttribute("stroke", edge);
     box.setAttribute("stroke-width", sel ? "2" : "1.2");
     box.style.cursor = "grab";
@@ -1024,7 +1116,7 @@ function renderNotes() {
     const tx = n.x + 20, ty = n.y + h;
     const tailFill = document.createElementNS(SVGNS, "path");
     tailFill.setAttribute("d", `M${tx} ${ty - 2} L${tx} ${ty + NOTE_TAIL} L${tx + 15} ${ty - 2} Z`);
-    tailFill.setAttribute("fill", "#fdf3d7");
+    tailFill.setAttribute("fill", st.fill);
     tailFill.setAttribute("pointer-events", "none");
     g.appendChild(tailFill);
     const tailEdge = document.createElementNS(SVGNS, "path");
@@ -1036,16 +1128,36 @@ function renderNotes() {
     tailEdge.setAttribute("pointer-events", "none");
     g.appendChild(tailEdge);
 
+    // number badge, top-left, matching the printed schedule
+    const badgeR = 9;
+    const bc = document.createElementNS(SVGNS, "circle");
+    bc.setAttribute("cx", n.x + NOTE_PAD + badgeR - 2);
+    bc.setAttribute("cy", n.y + NOTE_PAD + badgeR - 2);
+    bc.setAttribute("r", badgeR);
+    bc.setAttribute("fill", st.ink); bc.setAttribute("fill-opacity", ".88");
+    bc.setAttribute("pointer-events", "none");
+    g.appendChild(bc);
+    const bn = document.createElementNS(SVGNS, "text");
+    bn.setAttribute("x", n.x + NOTE_PAD + badgeR - 2);
+    bn.setAttribute("y", n.y + NOTE_PAD + badgeR - 1.5);
+    bn.setAttribute("text-anchor", "middle"); bn.setAttribute("dominant-baseline", "middle");
+    bn.setAttribute("fill", st.fill); bn.setAttribute("font-size", "10");
+    bn.setAttribute("font-family", "var(--mono)"); bn.setAttribute("font-weight", "700");
+    bn.setAttribute("pointer-events", "none");
+    bn.textContent = noteIndex(n);
+    g.appendChild(bn);
+
+    const lead = noteLead(st.fs);
     const t = document.createElementNS(SVGNS, "text");
-    t.setAttribute("y", n.y + NOTE_PAD + 9);
-    t.setAttribute("fill", "#4a4128");
-    t.setAttribute("font-size", NOTE_FS);
-    t.setAttribute("font-family", "var(--sans)");
+    t.setAttribute("y", n.y + NOTE_PAD + badgeR * 2 + 2);
+    t.setAttribute("fill", st.ink);
+    t.setAttribute("font-size", st.fs);
+    t.setAttribute("font-family", st.font);
     t.setAttribute("pointer-events", "none");
     lines.forEach((ln, i) => {
       const ts = document.createElementNS(SVGNS, "tspan");
       ts.setAttribute("x", n.x + NOTE_PAD);
-      ts.setAttribute("dy", i === 0 ? 0 : NOTE_LH);
+      ts.setAttribute("dy", i === 0 ? 0 : lead);
       ts.textContent = ln === "" ? " " : ln;
       t.appendChild(ts);
     });
@@ -1077,6 +1189,37 @@ function renderNoteEditor() {
   ta.style.cssText = "width:100%; resize:vertical; font-family:var(--sans); font-size:12px;";
   ta.oninput = () => { n.text = ta.value; renderBoard(); markDirty(); };
   host.appendChild(ta);
+
+  const styleRow = document.createElement("div");
+  styleRow.className = "row";
+  styleRow.style.cssText = "margin-top:8px; gap:8px;";
+  const paperSel = document.createElement("select");
+  for (const pp of NOTE_PAPERS) {
+    const o = document.createElement("option"); o.value = pp[0]; o.textContent = pp[0];
+    if ((n.paper || "Paper") === pp[0]) o.selected = true; paperSel.appendChild(o);
+  }
+  paperSel.onchange = () => { n.paper = paperSel.value; renderBoard(); markDirty(); };
+  const fontSel = document.createElement("select");
+  for (const ff of NOTE_FONTS) {
+    const o = document.createElement("option"); o.value = ff[0]; o.textContent = ff[0];
+    if ((n.font || "Sans") === ff[0]) o.selected = true; fontSel.appendChild(o);
+  }
+  fontSel.onchange = () => { n.font = fontSel.value; renderBoard(); markDirty(); };
+  const sizeSel = document.createElement("select");
+  for (const sz of [9.5, 11.5, 13.5, 16]) {
+    const o = document.createElement("option"); o.value = sz; o.textContent = sz + "px";
+    if ((+n.fs || 11.5) === sz) o.selected = true; sizeSel.appendChild(o);
+  }
+  sizeSel.onchange = () => { n.fs = +sizeSel.value; renderBoard(); markDirty(); };
+  const wrapSel = (labelText, el) => {
+    const l = document.createElement("label"); l.className = "fld"; l.style.flex = "1";
+    const sp = document.createElement("span"); sp.textContent = labelText;
+    l.appendChild(sp); l.appendChild(el); return l;
+  };
+  styleRow.appendChild(wrapSel("Paper", paperSel));
+  styleRow.appendChild(wrapSel("Font", fontSel));
+  styleRow.appendChild(wrapSel("Size", sizeSel));
+  host.appendChild(styleRow);
 
   const row = document.createElement("div");
   row.className = "row";
@@ -1643,7 +1786,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault(); redo(); return;
   }
   if (e.key === "Escape") {
-    closeReport(); closeLibrary(); closeShapePicker(); closePartBuilder();
+    closeReport(); closeLibrary(); closeShapePicker(); closePartBuilder(); closeCtxMenu();
     state.armedPin = null; renderAll();
     return;
   }
@@ -1681,6 +1824,13 @@ document.getElementById("reportBtn").onclick = buildReport;
 document.getElementById("undoBtn").onclick = undo;
 document.getElementById("redoBtn").onclick = redo;
 document.getElementById("routeSel").onchange = (e) => { state.routing = e.target.value; renderBoard(); markDirty(); };
+document.getElementById("labelPos").onchange = (e) => { state.labelPos = e.target.value; renderBoard(); markDirty(); };
+document.getElementById("gridMM").onchange = (e) => {
+  state.gridMM = +e.target.value;
+  applyGrid(); renderBoard(); markDirty();
+  toast(+e.target.value ? "Grid set to " + e.target.value + " mm — Snap now lands on it."
+                        : "Grid back to the default screen spacing.");
+};
 document.getElementById("tidySel").onchange = (e) => {
   const v = e.target.value;
   e.target.value = "";
@@ -1706,7 +1856,8 @@ function zoomBy(f) {
 }
 function contentBounds() {
   const boxes = [];
-  for (const c of state.components) boxes.push([c.x, c.y, c.x + c.w, c.y + c.h]);
+  const bannerPad = (state.labelPos || "banner") === "banner" ? 26 : 0;
+  for (const c of state.components) boxes.push([c.x, c.y - bannerPad, c.x + c.w, c.y + c.h]);
   for (const n of state.notes) boxes.push([n.x, n.y, n.x + n.w, n.y + noteHeight(n) + NOTE_TAIL]);
   // Routed wires can swing well outside their endpoints once they escape a board
   // or carry a hand bend, so include what is actually drawn.
@@ -1958,6 +2109,8 @@ function buildReport() {
   const notes = state.notes.length
     ? '<ol class="notes">' + state.notes.map(n => '<li>' + esc(n.text) + '</li>').join("") + '</ol>'
     : '<p class="none">No notes on this drawing.</p>';
+  // <ol> numbering already matches the badge on each bubble, because both come
+  // from the order of state.notes.
 
   const ver = (document.getElementById("verTag") || {}).textContent || "";
   const now = new Date();
@@ -2024,6 +2177,7 @@ const REPORT_CSS = `
 #reportOverlay svg.dwg #compLayer ellipse,
 #reportOverlay svg.dwg #compLayer polygon { fill:#ffffff !important; stroke:#16324a !important; stroke-width:1.3 !important; }
 #reportOverlay svg.dwg #compLayer text { fill:#16324a !important; }
+#reportOverlay svg.dwg #compLayer rect[data-plate-for] { fill:#ffffff !important; stroke:#8a97a6 !important; }
 /* Silhouette marks are line/circle/path, not rect — without these they keep
    their pale screen ink and disappear on white paper. */
 #reportOverlay svg.dwg #compLayer line,
@@ -2069,6 +2223,171 @@ const REPORT_CSS = `
   #reportOverlay .sheet { width:auto !important; max-width:none !important; margin:0 !important; padding:0 !important; box-shadow:none !important; }
 }
 `;
+
+// ---------- Right-click menu ----------
+// The panel already does all of this, but reaching for it breaks the flow when
+// you are mid-diagram. Everything here writes to the same state, so the panel
+// and the toolbar swatch update with it.
+let ctxEl = null;
+function closeCtxMenu() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
+
+function openCtxMenu(clientX, clientY, items) {
+  closeCtxMenu();
+  ctxEl = document.createElement("div");
+  ctxEl.id = "ctxMenu";
+  ctxEl.style.cssText =
+    "position:fixed;z-index:9998;min-width:186px;padding:5px;border-radius:9px;" +
+    "background:var(--chrome-3);border:1px solid var(--line);box-shadow:0 8px 26px rgba(0,0,0,.45);" +
+    "font-size:12.5px;color:var(--ink);";
+  for (const it of items) {
+    if (it.sep) {
+      const hr = document.createElement("div");
+      hr.style.cssText = "height:1px;background:var(--line);margin:5px 4px;";
+      ctxEl.appendChild(hr); continue;
+    }
+    if (it.swatches) {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;padding:5px 7px 7px;";
+      for (const sw of it.swatches) {
+        const b = document.createElement("button");
+        b.title = sw[0];
+        b.setAttribute("aria-label", sw[0]);
+        b.style.cssText = "width:19px;height:19px;border-radius:5px;padding:0;cursor:pointer;" +
+                          "border:1px solid #3a4761;background:" + sw[1];
+        b.onclick = () => { it.onPick(sw[1]); closeCtxMenu(); };
+        wrap.appendChild(b);
+      }
+      const custom = document.createElement("input");
+      custom.type = "color"; custom.value = it.current || "#d94141";
+      custom.title = "Custom colour";
+      custom.style.cssText = "width:19px;height:19px;padding:0;border:1px solid #3a4761;border-radius:5px;";
+      custom.oninput = () => it.onPick(custom.value);
+      wrap.appendChild(custom);
+      ctxEl.appendChild(wrap); continue;
+    }
+    const b = document.createElement("button");
+    b.textContent = it.label;
+    b.style.cssText = "display:block;width:100%;text-align:left;padding:6px 9px;border:0;" +
+                      "border-radius:6px;background:transparent;cursor:pointer;font:inherit;" +
+                      "color:" + (it.danger ? "var(--danger)" : "var(--ink)") + ";";
+    b.onmouseenter = () => b.style.background = "var(--chrome-2)";
+    b.onmouseleave = () => b.style.background = "transparent";
+    b.onclick = () => { closeCtxMenu(); it.run(); };
+    ctxEl.appendChild(b);
+  }
+  document.body.appendChild(ctxEl);
+  const r = ctxEl.getBoundingClientRect();
+  ctxEl.style.left = Math.min(clientX, window.innerWidth  - r.width  - 8) + "px";
+  ctxEl.style.top  = Math.min(clientY, window.innerHeight - r.height - 8) + "px";
+}
+
+// A tablet has no right-click, so a long press opens the same menu.
+let touchHold = null;
+svg.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
+  clearTimeout(touchHold);
+  const x = e.clientX, y = e.clientY, target = e.target;
+  touchHold = setTimeout(() => {
+    if (drag && drag.moved) return;
+    drag = null;
+    target.dispatchEvent(new MouseEvent("contextmenu", { clientX: x, clientY: y, bubbles: true }));
+  }, 520);
+});
+svg.addEventListener("pointermove", (e) => {
+  if (e.pointerType === "touch" && drag && drag.moved) clearTimeout(touchHold);
+});
+svg.addEventListener("pointerup", () => clearTimeout(touchHold));
+svg.addEventListener("pointercancel", () => clearTimeout(touchHold));
+
+// Pinch to zoom, two-finger drag to pan.
+let pinch = null;
+svg.addEventListener("touchstart", (e) => {
+  if (e.touches.length !== 2) return;
+  drag = null;
+  const [a, b] = [e.touches[0], e.touches[1]];
+  pinch = { d: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+            cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2,
+            scale: state.view.scale, vx: state.view.x, vy: state.view.y };
+  e.preventDefault();
+}, { passive: false });
+svg.addEventListener("touchmove", (e) => {
+  if (!pinch || e.touches.length !== 2) return;
+  e.preventDefault();
+  const [a, b] = [e.touches[0], e.touches[1]];
+  const d = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+  const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
+  const r = svg.getBoundingClientRect();
+  const ns = Math.min(3, Math.max(0.25, pinch.scale * (d / (pinch.d || 1))));
+  // keep the point under the fingers put, then follow the midpoint for panning
+  const wx = (pinch.cx - r.left - pinch.vx) / pinch.scale;
+  const wy = (pinch.cy - r.top  - pinch.vy) / pinch.scale;
+  state.view.scale = ns;
+  state.view.x = (cx - r.left) - wx * ns;
+  state.view.y = (cy - r.top)  - wy * ns;
+  applyView();
+}, { passive: false });
+svg.addEventListener("touchend", () => { if (pinch) pinch = null; });
+
+svg.addEventListener("contextmenu", (e) => {
+  if (overlayOpen()) return;
+  const noteEl = e.target.closest("[data-note-body]");
+  const bodyEl = e.target.closest("[data-body]");
+  const wireEl = e.target.closest("[data-wire]");
+  if (!noteEl && !bodyEl && !wireEl) return;
+  e.preventDefault();
+
+  if (noteEl) {
+    const n = state.notes.find(x => x.id === noteEl.dataset.noteBody);
+    if (!n) return;
+    selectOnly("note", n.id); renderAll();
+    openCtxMenu(e.clientX, e.clientY, [
+      { label: "Edit text…", run: () => { const t = prompt("Note text:", n.text);
+          if (t !== null) { n.text = t; renderAll(); } } },
+      { swatches: NOTE_PAPERS.map(pp => [pp[0], pp[1]]),
+        current: noteStyle(n).fill,
+        onPick: (hex) => { const found = NOTE_PAPERS.find(pp => pp[1] === hex);
+          n.paper = found ? found[0] : n.paper; renderAll(); } },
+      { sep: true },
+      { label: "Delete note", danger: true,
+        run: () => { state.notes = state.notes.filter(x => x.id !== n.id);
+          selectOnly(null, null); renderAll(); toast("Note deleted."); } }
+    ]);
+    return;
+  }
+  if (bodyEl) {
+    const c = state.components.find(x => x.id === bodyEl.dataset.body);
+    if (!c) return;
+    selectOnly("comp", c.id); renderAll();
+    openCtxMenu(e.clientX, e.clientY, [
+      { label: "Rename…", run: () => { const t = prompt("Component name:", c.label);
+          if (t !== null && t.trim()) { c.label = t.trim(); renderAll(); } } },
+      { swatches: COMP_COLORS, current: c.color || "#1f3b4d",
+        onPick: (hex) => { c.color = hex; renderAll(); } },
+      { sep: true },
+      { label: "Save to library…", run: () => saveToLibrary(c) },
+      { label: "Delete component", danger: true,
+        run: () => { const nm = c.label; deleteComponent(c.id);
+          toast(nm + " deleted, with its wires."); } }
+    ]);
+    return;
+  }
+  const w = state.wires.find(x => x.id === wireEl.dataset.wire);
+  if (!w) return;
+  selectOnly("wire", w.id); renderAll();
+  openCtxMenu(e.clientX, e.clientY, [
+    { swatches: WIRE_COLORS, current: w.color,
+      onPick: (hex) => { w.color = hex; state.color = hex; renderAll(); } },
+    { sep: true },
+    { label: (w.bend ? "Straighten this wire" : "Already straight"),
+      run: () => { if (w.bend) { delete w.bend; renderAll(); toast("Wire straightened."); } } },
+    { label: "Delete wire", danger: true,
+      run: () => { deleteWire(w.id); toast("Wire deleted."); } }
+  ]);
+});
+window.addEventListener("pointerdown", (e) => {
+  if (ctxEl && !ctxEl.contains(e.target)) closeCtxMenu();
+}, true);
+window.addEventListener("blur", closeCtxMenu);
 
 // ---------- Part builder ----------
 // Enter a part the way a datasheet gives it to you: identity and shape, then a
@@ -2435,7 +2754,8 @@ function deleteUserPart(name) {
 const FORMAT_VERSION = 2;
 function snapshot() {
   return { formatVersion: FORMAT_VERSION, components: state.components, wires: state.wires,
-           notes: state.notes, routing: state.routing,
+           notes: state.notes, routing: state.routing, labelPos: state.labelPos,
+           gridMM: state.gridMM,
            tidyVariant: state.tidyVariant || 0, wireVariant: state.wireVariant || 0,
            seq: state.seq };
 }
@@ -2469,6 +2789,9 @@ function applyHistory(raw) {
   state.routing = d.routing || "tidy";
   selectOnly(null, null); state.armedPin = null; drag = null;
   const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
+  const lp = document.getElementById("labelPos"); if (lp) lp.value = state.labelPos;
+  const gm = document.getElementById("gridMM"); if (gm) gm.value = state.gridMM || 0;
+  applyGrid();
   renderAll();
   restoring = false;
   lastCommitted = historySnapshot();
@@ -2570,16 +2893,22 @@ function validateLayout(d) {
   return { ok: true, problems: problems,
            data: { components: outComps, wires: outWires, notes: outNotes,
                    routing: ["tidy","curved","direct"].includes(d.routing) ? d.routing : "tidy",
+                   labelPos: d.labelPos === "inside" ? "inside" : "banner",
+                   gridMM: [0, 1, 2.54, 5, 10].includes(+d.gridMM) ? +d.gridMM : 0,
                    tidyVariant: Number(d.tidyVariant) || 0, wireVariant: Number(d.wireVariant) || 0,
                    seq: Math.max(maxSeq + 1, Number(d.seq) || 0) } };
 }
 function applyLayout(x) {
   past.length = 0; future.length = 0; lastCommitted = null;
   state.components = x.components; state.wires = x.wires; state.notes = x.notes;
-  state.routing = x.routing; state.tidyVariant = x.tidyVariant; state.wireVariant = x.wireVariant;
+  state.routing = x.routing; state.labelPos = x.labelPos; state.gridMM = x.gridMM;
+  state.tidyVariant = x.tidyVariant; state.wireVariant = x.wireVariant;
   state.seq = x.seq;
   selectOnly(null, null); state.armedPin = null; drag = null;
   const rs = document.getElementById("routeSel"); if (rs) rs.value = state.routing;
+  const lp = document.getElementById("labelPos"); if (lp) lp.value = state.labelPos;
+  const gm = document.getElementById("gridMM"); if (gm) gm.value = state.gridMM || 0;
+  applyGrid();
 }
 
 let libEl = null;

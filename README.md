@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.1 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.2 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -61,6 +61,14 @@ from any device at your Pages URL.
   every wire's color is editable afterward. Components take a color too, from a
   preset row or a picker; labels flip between light and dark ink automatically
   so they stay readable on any background.
+- **Names** — component names sit on a plate above each block by default, clear
+  of the pin text, and show in full rather than being clipped. Switch to
+  `Name: inside` for the older look.
+- **Right-click** — right-click a board, wire or note for rename, colour, save to
+  library and delete, without going to the side panel. On a tablet, long-press
+  does the same.
+- **Grid** — the canvas grid can work in millimetres (1, 2.54, 5 or 10 mm) as
+  well as the default screen spacing, and Snap follows whichever is set.
 - **Canvas** — drag to move, drag empty space to pan, scroll to zoom, Fit to
   frame everything. Shift-click a wire to delete it fast. Boards follow the
   pointer while you drag and land on the grid when you let go; untick **Snap**
@@ -69,8 +77,9 @@ from any device at your Pages URL.
 - **Undo / redo** — `⌘Z` and `⇧⌘Z`, or the two arrows in the toolbar. Every
   edit is undoable, sixty deep, so a mistaken Delete costs one keystroke.
 - **Notes** — the `✎ Note` button drops a callout bubble you can drag anywhere
-  and type into; use them to flag the details that bite you later. Notes travel
-  with the saved layout and appear on the printed report.
+  and type into. Each carries a number badge that matches its line in the printed
+  schedule, so a bubble on the drawing and a note on the sheet refer to each
+  other. Paper colour, font and text size are per note.
 - **Report** — the `Report` button opens a landscape blueprint sheet: the drawing
   recolored for paper, a title block, a numbered wire schedule with colors, and
   your notes. Print it or save it as a PDF.
@@ -128,6 +137,21 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.2
+- Notes are numbered, and the badge on a bubble matches its number in the
+  printed schedule so the two can be cross-referenced.
+- Notes take a paper colour, a font and a text size of their own.
+- Component names moved to a plate above the block by default, which ends the
+  collision with pin names and lets a long name show in full. `Name: inside`
+  keeps the old behaviour.
+- Added a right-click menu on boards, wires and notes — rename, recolour, save
+  to library, straighten, delete — writing to the same state the side panel and
+  toolbar use. Long-press is the tablet equivalent.
+- The canvas grid can be set in millimetres (1, 2.54, 5, 10) and Snap follows
+  it, so spacing can match a real board.
+- Touch: pinch to zoom, two-finger pan, larger pin targets and controls on
+  coarse-pointer devices.
 
 ### v2.1
 - Emptied the built-in parts library. Pinouts are being re-entered one at a
