@@ -216,7 +216,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.2</span>
+      <span class="ver" id="verTag">v2.3</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -244,11 +244,11 @@
         <option value="banner">Name: banner</option>
         <option value="inside">Name: inside</option>
       </select>
-      <select id="tidySel" title="Tidy up the board" style="width:auto;font-size:11.5px;">
-        <option value="">Tidy…</option>
-        <option value="both">Tidy both</option>
-        <option value="boards">Tidy boards</option>
-        <option value="wires">Tidy wires</option>
+      <select id="optSel" title="Optimize the drawing" style="width:auto;font-size:11.5px;">
+        <option value="">Optimize…</option>
+        <option value="routing">Routing</option>
+        <option value="placement">Placement</option>
+        <option value="both">Both</option>
       </select>
     </div>
     <div class="tb-sep"></div>
@@ -565,7 +565,9 @@ function findPin(pinId) {
   return null;
 }
 
-const WIRE_STUB = 16, WIRE_RADIUS = 9, WIRE_CLEAR = 22, WIRE_LANE = 9;
+const WIRE_STUB = 20, WIRE_RADIUS = 12, WIRE_CLEAR = 26, WIRE_LANE = 10;
+const WIRE_BADGE_EVERY = 300, WIRE_BADGE_MAX = 5;   // one number per 300px of run, capped
+const WAYPOINT_GRAB = 15;                           // world px to count as grabbing an existing point
 
 // When a pin points away from where the wire has to go, step clear of the board
 // first rather than cutting straight back across it.
@@ -625,10 +627,48 @@ function roundedPath(raw, r) {
 // one horizontal run and one vertical run — so both are named and lane-assigned
 // independently. Every segment is axis-aligned: offsets always move a whole
 // channel line, never a single corner, which is what used to tilt a segment.
-function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
+// Build an axis-aligned run through a list of points, inserting one elbow per
+// leg and alternating which way it turns so the result reads as a staircase.
+function orthoChain(start, through, end, leaveHoriz) {
+  const out = [start];
+  let horiz = leaveHoriz;
+  for (const q of through.concat([end])) {
+    const p = out[out.length - 1];
+    const dx = Math.abs(q.x - p.x), dy = Math.abs(q.y - p.y);
+    if (dx < 0.5 && dy < 0.5) continue;
+    // A pure move fixes the axis we arrive on; the next leg leaves on the other.
+    if (dx < 0.5) { out.push(q); horiz = true;  continue; }   // arrived vertically
+    if (dy < 0.5) { out.push(q); horiz = false; continue; }   // arrived horizontally
+    // Each leg emits two segments — elbow, then target — so we always arrive on
+    // the opposite axis to the one we left on, and the next leg leaves on this
+    // same axis again. Flipping here made the run climb to a waypoint and come
+    // straight back down the line it had just travelled.
+    out.push(horiz ? { x: q.x, y: p.y } : { x: p.x, y: q.y });
+    out.push(q);
+  }
+  return out;
+}
+
+// Which leg of the run a new waypoint belongs to: the one it lengthens least.
+function waypointInsertIndex(pt, chainPts) {
+  const man = (P, Q) => Math.abs(P.x - Q.x) + Math.abs(P.y - Q.y);
+  let best = 0, bestCost = Infinity;
+  for (let i = 0; i < chainPts.length - 1; i++) {
+    const cost = man(chainPts[i], pt) + man(pt, chainPts[i + 1]) - man(chainPts[i], chainPts[i + 1]);
+    if (cost < bestCost) { bestCost = cost; best = i; }
+  }
+  return best;
+}
+
+// Returns { d, hKey, vKey, hSort, vSort, axis }. A wire occupies up to two
+// channels — one horizontal run and one vertical — so both are named and
+// lane-assigned independently. Every segment is axis-aligned.
+// A wire with waypoints is routed through them verbatim and takes no lane: the
+// user placed it, so nothing should move it afterwards.
+function wireRoute(a, b, aSide, bSide, mode, wps, ca, cb, lanes) {
   const na = SIDE_NORMAL[aSide], nb = SIDE_NORMAL[bSide];
   const m = mode || state.routing || "tidy";
-  const bx = (bend && bend.x) || 0, by = (bend && bend.y) || 0;
+  const way = Array.isArray(wps) ? wps : [];
   const L = lanes || {};
   const hL = L.h || { i: 0, n: 1 }, vL = L.v || { i: 0, n: 1 };
   const hCentred = (hL.i - (hL.n - 1) / 2) * WIRE_LANE;
@@ -636,28 +676,35 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
   const hOut = hL.i * WIRE_LANE, vOut = vL.i * WIRE_LANE;
   const pairKey = [ca && ca.id, cb && cb.id].sort().join("~");
 
+  const p1 = { x: a.x + na[0] * WIRE_STUB, y: a.y + na[1] * WIRE_STUB };
+  const p2 = { x: b.x + nb[0] * WIRE_STUB, y: b.y + nb[1] * WIRE_STUB };
+
+  // --- hand-routed: follow the waypoints exactly ---
+  if (way.length) {
+    const pts = (m === "tidy")
+      ? [a].concat(orthoChain(p1, way, p2, na[0] !== 0), [b])
+      : [a, p1].concat(way, [p2, b]);
+    return { d: roundedPath(pts, WIRE_RADIUS), hKey: null, vKey: null,
+             hSort: 0, vSort: 0, axis: "free" };
+  }
+
   if (m === "curved") {
     const dist = Math.hypot(b.x - a.x, b.y - a.y);
     const off = Math.min(Math.max(dist * 0.22, 22), 64) + hOut;
-    const c1 = { x: a.x + na[0] * off + bx, y: a.y + na[1] * off + by };
-    const c2 = { x: b.x + nb[0] * off + bx, y: b.y + nb[1] * off + by };
+    const c1 = { x: a.x + na[0] * off, y: a.y + na[1] * off };
+    const c2 = { x: b.x + nb[0] * off, y: b.y + nb[1] * off };
     return { d: "M " + a.x + " " + a.y + " C " + c1.x + " " + c1.y + ", " + c2.x + " " + c2.y + ", " + b.x + " " + b.y,
-             hKey: "curve:" + pairKey, vKey: null, hSort: (a.y + b.y) / 2, vSort: 0, axis: "both" };
+             hKey: "curve:" + pairKey, vKey: null, hSort: (a.y + b.y) / 2, vSort: 0, axis: "free" };
   }
-
-  const p1 = { x: a.x + na[0] * WIRE_STUB, y: a.y + na[1] * WIRE_STUB };
-  const p2 = { x: b.x + nb[0] * WIRE_STUB, y: b.y + nb[1] * WIRE_STUB };
 
   if (m === "direct") {
     const dx = p2.x - p1.x, dy = p2.y - p1.y, len = Math.hypot(dx, dy) || 1;
     const pts = [a, p1];
-    if (bx || by || hCentred) {
-      pts.push({ x: (p1.x + p2.x) / 2 + bx - dy / len * hCentred,
-                 y: (p1.y + p2.y) / 2 + by + dx / len * hCentred });
-    }
+    if (hCentred) pts.push({ x: (p1.x + p2.x) / 2 - dy / len * hCentred,
+                             y: (p1.y + p2.y) / 2 + dx / len * hCentred });
     pts.push(p2, b);
     return { d: roundedPath(pts, WIRE_RADIUS), hKey: "direct:" + pairKey, vKey: null,
-             hSort: (a.y + b.y) / 2, vSort: 0, axis: "both" };
+             hSort: (a.y + b.y) / 2, vSort: 0, axis: "free" };
   }
 
   // A wire between two pins of the same board has no gap to run through, so the
@@ -666,27 +713,26 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
     const top = ca.y - WIRE_CLEAR, bot = ca.y + ca.h + WIRE_CLEAR;
     const midY = (p1.y + p2.y) / 2;
     const ring = Math.abs(midY - top) <= Math.abs(midY - bot) ? top : bot;
-    const pts0 = [a, p1, { x: p1.x, y: ring + by }, { x: p2.x, y: ring + by }, p2, b];
+    const pts0 = [a, p1, { x: p1.x, y: ring }, { x: p2.x, y: ring }, p2, b];
     return { d: roundedPath(pts0, WIRE_RADIUS), hKey: "self:" + ca.id + ":" + Math.round(ring / 4),
              vKey: null, hSort: (p1.x + p2.x) / 2, vSort: 0, axis: "y" };
   }
+
   const ea = escapePts(p1, aSide, ca, b.x, b.y);
   const eb = escapePts(p2, bSide, cb, a.x, a.y);
   let hKey = null, vKey = null, hSort = 0, vSort = 0;
 
-  // A sideways step only ever comes from a top/bottom pin. Deciding this by
-  // geometry misfired: a left pin's stub already sits outside the box in x, so
-  // every left/right escape was misread as sideways and lost its geometry.
+  // A sideways step only ever comes from a top/bottom pin.
   const sideways = (e, side) => e.length && (side === "top" || side === "bottom");
   if (ea.length) {
-    if (sideways(ea, aSide)) {                       // stepped left/right of the board
+    if (sideways(ea, aSide)) {
       const base = ea[0].x;
       vKey = "ex:" + Math.round(base / 4); vSort = (p1.y + p2.y) / 2;
-      ea[0] = { x: base + (base < ca.x ? -vOut : vOut) + bx, y: ea[0].y };
+      ea[0] = { x: base + (base < ca.x ? -vOut : vOut), y: ea[0].y };
     } else {
       const base = ea[0].y;
       hKey = "ey:" + Math.round(base / 4); hSort = (p1.x + p2.x) / 2;
-      ea[0] = { x: ea[0].x, y: base + (base < ca.y ? -hOut : hOut) + by };
+      ea[0] = { x: ea[0].x, y: base + (base < ca.y ? -hOut : hOut) };
     }
   }
   if (eb.length) {
@@ -706,39 +752,32 @@ function wireRoute(a, b, aSide, bSide, mode, bend, ca, cb, lanes) {
   const leaveH = ea.length ? true : (na[0] !== 0);
   const enterH = eb.length ? true : (nb[0] !== 0);
 
-  // Always a staircase (H,V,H or V,H,V). When an offset is zero the spare
-  // segment collapses to zero length and roundedPath drops it.
   const mid = [];
   let axis = "both";
   if (ea.length || eb.length) {
-    // A sideways escape has already claimed the vertical channel; otherwise the
-    // drop into the destination is it.
     if (!vKey) { vKey = "vx:" + Math.round(s2.x / 4); vSort = (s1.y + s2.y) / 2; }
-    // Both ends get a lane. This offset used to be zeroed whenever the
-    // destination escaped, so every wire into that board fell down the same x
-    // and buried the ones underneath.
-    const cx = s2.x + nb[0] * vOut + bx;
+    const cx = s2.x + nb[0] * vOut;
     mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
   } else if (leaveH && enterH) {
     const base = s1.x + (s2.x - s1.x) * channelFrac();
     vKey = "vx:" + Math.round(base / 4); vSort = (s1.y + s2.y) / 2;
-    const cx = base + bx + vCentred;
+    const cx = base + vCentred;
     axis = "x";
     mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
   } else if (!leaveH && !enterH) {
     const base = s1.y + (s2.y - s1.y) * channelFrac();
     hKey = "hy:" + Math.round(base / 4); hSort = (s1.x + s2.x) / 2;
-    const cy = base + by + hCentred;
+    const cy = base + hCentred;
     axis = "y";
     mid.push({ x: s1.x, y: cy }, { x: s2.x, y: cy });
   } else if (leaveH) {
     vKey = "vx:" + Math.round(s2.x / 4); vSort = (s1.y + s2.y) / 2;
-    const cx = s2.x + bx + vCentred;
+    const cx = s2.x + vCentred;
     axis = "x";
     mid.push({ x: cx, y: s1.y }, { x: cx, y: s2.y });
   } else {
     hKey = "hy:" + Math.round(s2.y / 4); hSort = (s1.x + s2.x) / 2;
-    const cy = s2.y + by + hCentred;
+    const cy = s2.y + hCentred;
     axis = "y";
     mid.push({ x: s1.x, y: cy }, { x: s2.x, y: cy });
   }
@@ -797,7 +836,7 @@ function renderBoard() {
     const a = findPin(w.from), b = findPin(w.to);
     if (!a || !b) continue;
     const pa = pinPos(a.comp, a.pin), pb = pinPos(b.comp, b.pin);
-    routes.push({ w, a, b, pa, pb, probe: wireRoute(pa, pb, a.pin.side, b.pin.side, w.route, w.bend, a.comp, b.comp, null) });
+    routes.push({ w, a, b, pa, pb, probe: wireRoute(pa, pb, a.pin.side, b.pin.side, w.route, w.waypoints, a.comp, b.comp, null) });
   }
   const assign = (keyName, sortName, slot) => {
     const g = {};
@@ -814,7 +853,7 @@ function renderBoard() {
 
   for (const rt of routes) {
     const w = rt.w;
-    const rr = wireRoute(rt.pa, rt.pb, rt.a.pin.side, rt.b.pin.side, w.route, w.bend,
+    const rr = wireRoute(rt.pa, rt.pb, rt.a.pin.side, rt.b.pin.side, w.route, w.waypoints,
                          rt.a.comp, rt.b.comp, { h: rt.hLane, v: rt.vLane });
     const d = rr.d;
     const shadow = document.createElementNS(SVGNS, "path");
@@ -865,6 +904,47 @@ function renderBoard() {
     whit.dataset.wire = w.id;
     whit.dataset.wireHit = w.id;
     wireAxis.set(w.id, rr.axis);
+
+    if (w.id === state.selectedWire && w.waypoints) {
+      for (const q of w.waypoints) {
+        const h = document.createElementNS(SVGNS, "circle");
+        h.setAttribute("cx", q.x); h.setAttribute("cy", q.y); h.setAttribute("r", "5");
+        h.setAttribute("fill", "var(--accent)");
+        h.setAttribute("stroke", "#14202a"); h.setAttribute("stroke-width", "1.5");
+        h.setAttribute("pointer-events", "none");
+        h.dataset.wpHandle = w.id;
+        wireLayer.appendChild(h);
+      }
+    }
+
+    // Wire number, repeated along the run so a long wire can be picked up
+    // anywhere: one badge per WIRE_BADGE_EVERY px, capped, evenly spaced.
+    const num = state.wires.indexOf(w) + 1;
+    let totalLen = 0;
+    try { totalLen = path.getTotalLength(); } catch (err) { totalLen = 0; }
+    if (totalLen > 40) {
+      const count = Math.max(1, Math.min(WIRE_BADGE_MAX, Math.round(totalLen / WIRE_BADGE_EVERY)));
+      const ink = readableInk(w.color);
+      for (let bi = 0; bi < count; bi++) {
+        const at = path.getPointAtLength(totalLen * (bi + 0.5) / count);
+        const bg = document.createElementNS(SVGNS, "circle");
+        bg.setAttribute("cx", at.x); bg.setAttribute("cy", at.y); bg.setAttribute("r", "8.5");
+        bg.setAttribute("fill", w.color);
+        bg.setAttribute("stroke", "#16324a"); bg.setAttribute("stroke-width", "1.2");
+        bg.setAttribute("pointer-events", "none");
+        bg.dataset.wireBadge = w.id;
+        wireLayer.appendChild(bg);
+        const tx = document.createElementNS(SVGNS, "text");
+        tx.setAttribute("x", at.x); tx.setAttribute("y", at.y + 0.5);
+        tx.setAttribute("text-anchor", "middle"); tx.setAttribute("dominant-baseline", "middle");
+        tx.setAttribute("fill", ink); tx.setAttribute("font-size", "9.5");
+        tx.setAttribute("font-family", "var(--mono)"); tx.setAttribute("font-weight", "700");
+        tx.setAttribute("pointer-events", "none");
+        tx.dataset.wireBadge = w.id;
+        tx.textContent = num;
+        wireLayer.appendChild(tx);
+      }
+    }
     // A right-angle run can only slide along its own channel: show which way.
     whit.style.cursor = rr.axis === "x" ? "ew-resize" : rr.axis === "y" ? "ns-resize" : "move";
     wireLayer.appendChild(whit);
@@ -1656,8 +1736,24 @@ svg.addEventListener("pointerdown", (e) => {
     const w = state.wires.find(x => x.id === wireEl.dataset.wire);
     if (w) {
       const pt = toWorld(e.clientX, e.clientY);
-      const b0 = w.bend || { x: 0, y: 0 };
-      drag = { type: "wire", id: w.id, sx: pt.x, sy: pt.y, bx: b0.x, by: b0.y, moved: false, pointerId: e.pointerId };
+      if (!Array.isArray(w.waypoints)) w.waypoints = [];
+      // Grab an existing waypoint if the pointer is on one, otherwise drop a new
+      // one into whichever leg it belongs to. Either way it then follows the
+      // pointer in both axes.
+      let idx = -1, bestD = WAYPOINT_GRAB;
+      w.waypoints.forEach((q, i) => {
+        const d = Math.hypot(q.x - pt.x, q.y - pt.y);
+        if (d < bestD) { bestD = d; idx = i; }
+      });
+      if (idx === -1) {
+        const A = findPin(w.from), B = findPin(w.to);
+        const pa = pinPos(A.comp, A.pin), pb = pinPos(B.comp, B.pin);
+        const chain = [pa].concat(w.waypoints, [pb]);
+        idx = waypointInsertIndex(pt, chain);
+        w.waypoints.splice(idx, 0, { x: pt.x, y: pt.y });
+      }
+      drag = { type: "wire", id: w.id, wpIndex: idx, moved: false, pointerId: e.pointerId,
+               ox: w.waypoints[idx].x - pt.x, oy: w.waypoints[idx].y - pt.y };
       selectOnly("wire", w.id);
       svg.setPointerCapture(e.pointerId);
       renderAll();
@@ -1692,17 +1788,12 @@ svg.addEventListener("pointermove", (e) => {
   } else if (drag.type === "wire") {
     const pt = toWorld(e.clientX, e.clientY);
     const w = state.wires.find(x => x.id === drag.id);
-    if (w) {
-      // Only keep the component the route can actually use, so a drag across
-      // the grain does not leave an invisible "hand-routed" flag behind.
-      const ax = wireAxis.get(w.id) || "both";
-      const nx = ax === "y" ? 0 : drag.bx + (pt.x - drag.sx);
-      const ny = ax === "x" ? 0 : drag.by + (pt.y - drag.sy);
-      if (Math.abs(nx) < 0.5 && Math.abs(ny) < 0.5) delete w.bend;
-      else w.bend = { x: nx, y: ny };
+    const q = w && w.waypoints && w.waypoints[drag.wpIndex];
+    if (q) {
+      q.x = pt.x + drag.ox; q.y = pt.y + drag.oy;   // free in both axes
       drag.moved = true;
       renderBoard();
-    }
+    } else if (!w) { endDrag(); return; }
   } else if (drag.type === "note") {
     const w = toWorld(e.clientX, e.clientY);
     const n = state.notes.find(x => x.id === drag.id);
@@ -1735,7 +1826,16 @@ svg.addEventListener("pointerup", (e) => {
     const n = state.notes.find(x => x.id === drag.id);
     if (n) { n.x = snap(n.x); n.y = snap(n.y); }
     renderAll();
-  } else if (drag && drag.moved && drag.type === "wire") {
+  } else if (drag && drag.type === "wire") {
+    const w = state.wires.find(x => x.id === drag.id);
+    if (w && w.waypoints) {
+      if (!drag.moved) w.waypoints.splice(drag.wpIndex, 1);   // a click, not a drag
+      else if (state.gridMM || document.getElementById("snap").checked) {
+        const q = w.waypoints[drag.wpIndex];
+        if (q) { q.x = snap(q.x); q.y = snap(q.y); }
+      }
+      if (!w.waypoints.length) delete w.waypoints;
+    }
     renderAll();
   }
   endDrag();
@@ -1745,7 +1845,17 @@ svg.addEventListener("dblclick", (e) => {
   const wireEl = e.target.closest("[data-wire]");
   if (!wireEl) return;
   const w = state.wires.find(x => x.id === wireEl.dataset.wire);
-  if (w && w.bend) { delete w.bend; renderBoard(); markDirty(); }
+  if (!w || !w.waypoints || !w.waypoints.length) return;
+  const pt = toWorld(e.clientX, e.clientY);
+  let idx = -1, bestD = WAYPOINT_GRAB * 1.6;
+  w.waypoints.forEach((q, i) => {
+    const d = Math.hypot(q.x - pt.x, q.y - pt.y);
+    if (d < bestD) { bestD = d; idx = i; }
+  });
+  if (idx >= 0) { w.waypoints.splice(idx, 1); toast("Waypoint removed."); }
+  else { delete w.waypoints; toast("Wire routing reset."); }
+  if (w.waypoints && !w.waypoints.length) delete w.waypoints;
+  renderAll(); markDirty();
 });
 
 function handlePinClick(pinId) {
@@ -1831,15 +1941,15 @@ document.getElementById("gridMM").onchange = (e) => {
   toast(+e.target.value ? "Grid set to " + e.target.value + " mm — Snap now lands on it."
                         : "Grid back to the default screen spacing.");
 };
-document.getElementById("tidySel").onchange = (e) => {
+document.getElementById("optSel").onchange = (e) => {
   const v = e.target.value;
   e.target.value = "";
-  if (v === "wires") tidyWires();
-  else if (v === "boards") tidyBoards();
+  if (v === "routing") optimizeRouting();
+  else if (v === "placement") optimizePlacement();
   else if (v === "both") {
-    const b = tidyBoards(true), w = tidyWires(true);
-    toast(!b && !w ? "Already tidy — nothing to move or reset."
-                   : "Tidied " + b + " board" + (b === 1 ? "" : "s") + " and reset " + w + " wire" + (w === 1 ? "" : "s") + ".");
+    const b = optimizePlacement(true), w = optimizeRouting(true);
+    toast(!b && !w ? "Already optimized — nothing to move or reroute."
+                   : "Moved " + b + " board" + (b === 1 ? "" : "s") + " and reset " + w + " hand-routed wire" + (w === 1 ? "" : "s") + ".");
   }
 };
 document.getElementById("zoomIn").onclick = () => zoomBy(1.2);
@@ -1928,7 +2038,7 @@ document.getElementById("clearBtn").onclick = () => {
   }
 };
 
-// ---------- Tidy ----------
+// ---------- Optimize ----------
 let toastTimer = null;
 function toast(msg) {
   let el = document.getElementById("toast");
@@ -1946,15 +2056,16 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.style.opacity = "0"; }, 2200);
 }
 
-function tidyWires(quiet) {
-  const n = state.wires.filter(w => w.bend).length;
-  for (const w of state.wires) delete w.bend;
+function optimizeRouting(quiet) {
+  const n = state.wires.filter(w => w.waypoints && w.waypoints.length).length;
+  for (const w of state.wires) delete w.waypoints;
   const v = (state.wireVariant || 0) % WIRE_ROUTINGS.length;
   renderAll();                       // render with v, then advance
   state.wireVariant = (v + 1) % WIRE_ROUTINGS.length;
   if (!quiet) {
     toast("Routing " + (v + 1) + " of " + WIRE_ROUTINGS.length + " — " + WIRE_ROUTINGS[v] +
-          (n ? ". Reset " + n + " hand-routed wire" + (n === 1 ? "" : "s") + "." : ". Tidy again for another."));
+          (n ? ". Reset " + n + " hand-routed wire" + (n === 1 ? "" : "s") + "."
+             : ". Optimize again for another."));
   }
   return n;
 }
@@ -2020,7 +2131,7 @@ function packLine(order, vertical) {
   }
 }
 
-function tidyBoards(quiet) {
+function optimizePlacement(quiet) {
   if (!state.components.length) { if (!quiet) toast("Nothing on the board yet."); return 0; }
   const v = (state.tidyVariant || 0) % BOARD_LAYOUTS.length;
   const before = state.components.map(c => c.x + "," + c.y);
@@ -2044,8 +2155,8 @@ function tidyBoards(quiet) {
   renderAll();
   const n = state.components.filter((c, i) => before[i] !== c.x + "," + c.y).length;
   if (!quiet) {
-    toast("Layout " + (v + 1) + " of " + BOARD_LAYOUTS.length + " — " + BOARD_LAYOUTS[v][1] +
-          ". Tidy again for another.");
+    toast("Placement " + (v + 1) + " of " + BOARD_LAYOUTS.length + " — " + BOARD_LAYOUTS[v][1] +
+          ". Optimize again for another.");
   }
   return n;
 }
@@ -2378,8 +2489,10 @@ svg.addEventListener("contextmenu", (e) => {
     { swatches: WIRE_COLORS, current: w.color,
       onPick: (hex) => { w.color = hex; state.color = hex; renderAll(); } },
     { sep: true },
-    { label: (w.bend ? "Straighten this wire" : "Already straight"),
-      run: () => { if (w.bend) { delete w.bend; renderAll(); toast("Wire straightened."); } } },
+    { label: ((w.waypoints && w.waypoints.length)
+                ? "Reset routing (" + w.waypoints.length + " waypoint" + (w.waypoints.length === 1 ? "" : "s") + ")"
+                : "Routing is automatic"),
+      run: () => { if (w.waypoints) { delete w.waypoints; renderAll(); toast("Wire routing reset."); } } },
     { label: "Delete wire", danger: true,
       run: () => { deleteWire(w.id); toast("Wire deleted."); } }
   ]);
@@ -2873,7 +2986,11 @@ function validateLayout(d) {
     pairSeen.add(key); seenWire.add(w.id);
     const wire = { id: w.id, from: w.from, to: w.to,
                    color: typeof w.color === "string" ? w.color : "#d94141" };
-    if (w.bend && isFinite(w.bend.x) && isFinite(w.bend.y)) wire.bend = { x: +w.bend.x, y: +w.bend.y };
+    if (Array.isArray(w.waypoints)) {
+      const wp = w.waypoints.filter(q => q && isFinite(q.x) && isFinite(q.y))
+                            .map(q => ({ x: +q.x, y: +q.y }));
+      if (wp.length) wire.waypoints = wp;
+    }
     if (typeof w.route === "string") wire.route = w.route;
     outWires.push(wire);
   }

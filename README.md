@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.2 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.3 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -51,12 +51,18 @@ from any device at your Pages URL.
   nothing cuts across a part. `Curved` and `Direct` are there if you prefer them.
   Wires that would share a route are fanned into parallel lanes so none is
   hidden underneath another, which also makes a bus read as a deliberate bundle.
-  Drag any wire to reroute it by hand; double-click it to straighten it again.
-- **Tidy** — shuffles rather than settles. Each press offers a different
-  arrangement: four board layouts (nudge in place, columns, rows, columns
+  Grab a wire anywhere and drag: that point becomes a waypoint you can move in
+  any direction, and a wire can carry as many as you need. Double-click a
+  waypoint to remove it, or double-click elsewhere on the wire to drop them all.
+- **Wire numbers** — each wire carries its schedule number in a small badge on
+  the run itself, repeated about every 300px up to five times, so a long wire
+  can be identified anywhere along its length and matched to the printed table.
+- **Optimize** — replaces Tidy. Choose Routing, Placement or Both. Each press
+  offers a different arrangement, and Routing also clears hand-placed waypoints.
+- **Optimize** — shuffles rather than settles. Each press offers a different
+  arrangement: four board placements (nudge in place, columns, rows, columns
   ordered by how many wires a board carries) and four routing styles (channel
-  position, which edge wires escape around, lane order). Keep pressing until one
-  looks right; it also resets any hand-routed wires.
+  position, which edge wires escape around, lane order).
 - **Colors** — pick from the classic jumper-wire palette (or a custom color);
   every wire's color is editable afterward. Components take a color too, from a
   preset row or a picker; labels flip between light and dark ink automatically
@@ -137,6 +143,19 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.3
+- Wires are hand-routed with waypoints instead of a single-axis nudge. Grab a
+  wire anywhere and it becomes a point you can move in any direction; add as
+  many as a run needs. Double-click removes one, or clears the wire.
+- Fixed the elbow rule that made a hand-routed wire climb to a waypoint and come
+  straight back down the line it had just travelled.
+- Each wire carries its schedule number in a badge on the run, repeated about
+  every 300px up to five times, so the drawing and the printed table can be read
+  against each other anywhere along a wire.
+- Roomier geometry: longer pin stubs, a larger corner radius and more board
+  clearance, so turns near pins are less pinched.
+- Renamed Tidy to Optimize, with Routing, Placement and Both.
 
 ### v2.2
 - Notes are numbered, and the badge on a bubble matches its number in the
