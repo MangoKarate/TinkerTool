@@ -218,7 +218,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.7</span>
+      <span class="ver" id="verTag">v2.8</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -858,13 +858,18 @@ function wireRoute(a, b, aSide, bSide, mode, wps, ca, cb, lanes) {
     const ringY = vSide === "top"  ? ca.y - WIRE_CLEAR : ca.y + ca.h + WIRE_CLEAR;
     const ringX = hSide === "left" ? ca.x - WIRE_CLEAR : ca.x + ca.w + WIRE_CLEAR;
     const aIsVertical = (aSide === "top" || aSide === "bottom");
+    // This loop runs along BOTH rails — a horizontal one at ringY and a vertical
+    // one at ringX. Give each its own lane (hKey for ringY, vKey for ringX) or
+    // parallel mixed-side loops overpaint each other along the shared rail.
     const ringXDraw = ringX + (ringX < ca.x ? -1 : 1) * vL.i * WIRE_LANE;
+    const ringYDraw = ringY + (ringY < ca.y ? -1 : 1) * hL.i * WIRE_LANE;
     const pts0 = aIsVertical
-      ? [a, p1, { x: p1.x, y: ringY }, { x: ringXDraw, y: ringY }, { x: ringXDraw, y: p2.y }, p2, b]
-      : [a, p1, { x: ringXDraw, y: p1.y }, { x: ringXDraw, y: ringY }, { x: p2.x, y: ringY }, p2, b];
-    return { d: roundedPath(pts0, WIRE_RADIUS), hKey: null,
-             vKey: "self:" + ca.id + ":" + Math.round(ringX / 4),
-             hSort: 0, vSort: (p1.y + p2.y) / 2, axis: "both" };
+      ? [a, p1, { x: p1.x, y: ringYDraw }, { x: ringXDraw, y: ringYDraw }, { x: ringXDraw, y: p2.y }, p2, b]
+      : [a, p1, { x: ringXDraw, y: p1.y }, { x: ringXDraw, y: ringYDraw }, { x: p2.x, y: ringYDraw }, p2, b];
+    return { d: roundedPath(pts0, WIRE_RADIUS),
+             hKey: "selfMH:" + ca.id + ":" + Math.round(ringY / 4),
+             vKey: "selfMV:" + ca.id + ":" + Math.round(ringX / 4),
+             hSort: (p1.x + p2.x) / 2, vSort: (p1.y + p2.y) / 2, axis: "both" };
   }
 
   const ea = escapePts(p1, aSide, ca, b.x, b.y);
@@ -1966,7 +1971,15 @@ function openPinSetup(shape) {
     pinSetupEl.querySelector("#psX").onclick = closePinSetup;
     pinSetupEl.querySelector("#psCancel").onclick = closePinSetup;
     pinSetupEl.querySelector("#psAdd").onclick = () => {
-      const count = Math.round(clampNum(pinSetupEl.querySelector("#psN").value, 0, 80));
+      // A pin count is a hardware fact — round it and you have quietly changed the
+      // part. Reject anything that is not a whole number in range.
+      const n = Number(pinSetupEl.querySelector("#psN").value);
+      if (!Number.isInteger(n) || n < 0 || n > 80) {
+        toast("Enter a whole number of pins, 0 to 80.");
+        const el = pinSetupEl.querySelector("#psN"); el.focus(); el.select();
+        return;
+      }
+      const count = n;
       const spec = { count: count,
                      prefix: pinSetupEl.querySelector("#psPrefix").value.trim(),
                      arrange: pinSetupEl.querySelector("#psArr").value };
@@ -2023,7 +2036,8 @@ svg.addEventListener("pointerdown", (e) => {
     if (w) {
       const pt = toWorld(e.clientX, e.clientY);
       const nowW = Date.now();
-      if (lastTap.kind === "wire" && lastTap.id === w.id && nowW - lastTap.at < 350) {
+      if (lastTap.kind === "wire" && lastTap.id === w.id && nowW - lastTap.at < 350 &&
+          Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 12) {
         lastTap = { kind: null, id: null, at: 0 };
         // Double-click removes a hand-placed bend: the nearest waypoint, or all of
         // them if the click is not near one. A wire on its automatic route has
@@ -2040,7 +2054,7 @@ svg.addEventListener("pointerdown", (e) => {
         }
         e.preventDefault(); return;
       }
-      lastTap = { kind: "wire", id: w.id, at: nowW };
+      lastTap = { kind: "wire", id: w.id, at: nowW, x: e.clientX, y: e.clientY };
       // Read only. Creating the array here counted as an edit, so a click that
       // changed nothing still landed in the undo history.
       const existing = Array.isArray(w.waypoints) ? w.waypoints : [];
@@ -2064,14 +2078,15 @@ svg.addEventListener("pointerdown", (e) => {
   if (bodyEl) {
     const c = state.components.find(c => c.id === bodyEl.dataset.body);
     const nowB = Date.now();
-    if (lastTap.kind === "comp" && lastTap.id === c.id && nowB - lastTap.at < 350) {
+    if (lastTap.kind === "comp" && lastTap.id === c.id && nowB - lastTap.at < 350 &&
+        Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 12) {
       lastTap = { kind: null, id: null, at: 0 };
       selectOnly("comp", c.id); renderAll();
       const nm = prompt("Component name:", c.label);
       if (nm !== null) { c.label = nm || "Part"; renderAll(); }
       e.preventDefault(); return;
     }
-    lastTap = { kind: "comp", id: c.id, at: nowB };
+    lastTap = { kind: "comp", id: c.id, at: nowB, x: e.clientX, y: e.clientY };
     selectOnly("comp", c.id);
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false, pointerId: e.pointerId };
@@ -2131,7 +2146,11 @@ svg.addEventListener("pointermove", (e) => {
   }
 });
 
-function endDrag() { svg.classList.remove("panning"); drag = null; }
+function endDrag() {
+  // A gesture that moved was a drag, not the first click of a double-click.
+  if (drag && drag.moved) lastTap = { kind: null, id: null, at: 0 };
+  svg.classList.remove("panning"); drag = null;
+}
 svg.addEventListener("pointercancel", endDrag);
 svg.addEventListener("lostpointercapture", () => { if (drag) endDrag(); });
 
@@ -2255,6 +2274,11 @@ function handlePinClick(pinId, clientX, clientY) {
     // re-render between the two taps that can stop the browser firing dblclick.
     if (tapWire && (now - tapWire.at) < 600 && (tapWire.from === pinId || tapWire.to === pinId)) {
       deleteWire(tapWire.id);
+      // Roll history back to before the provisional wire, so the whole add+cancel
+      // gesture leaves no trace and Undo does not bring the wire back.
+      past.length = tapWire.histLen;
+      lastCommitted = tapWire.histCommit;
+      updateHistoryButtons();
     }
     tapWire = null;
     state.armedPin = null;
@@ -2268,8 +2292,9 @@ function handlePinClick(pinId, clientX, clientY) {
   } else if (state.armedPin === pinId) {
     state.armedPin = null;
   } else {
+    const histLen = past.length, histCommit = lastCommitted;
     const w = addWire(state.armedPin, pinId);
-    tapWire = w ? { id: w.id, from: w.from, to: w.to, at: now } : null;
+    tapWire = w ? { id: w.id, from: w.from, to: w.to, at: now, histLen: histLen, histCommit: histCommit } : null;
     state.armedPin = null;
   }
   renderAll();
@@ -2302,6 +2327,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") {
     closeReport(); closeLibrary(); closeShapePicker(); closePartBuilder(); closeCtxMenu();
+    closePinEditor(); closePinSetup();
     state.armedPin = null; renderAll();
     return;
   }
@@ -3112,9 +3138,10 @@ function buildBuilderShell() {
     renderPinRows(true);
   };
   builderEl.querySelector("#pbAddMany").onclick = () => {
-    const n = clampNum(builderEl.querySelector("#pbBulkN").value, 1, 80);
+    const raw = Number(builderEl.querySelector("#pbBulkN").value);
+    if (!Number.isInteger(raw) || raw < 1 || raw > 80) { toast("Enter a whole number of rows, 1 to 80."); return; }
     const side = builderEl.querySelector("#pbBulkSide").value;
-    for (let i = 0; i < n; i++) draft.pins.push({ num: "", name: "", side: side });
+    for (let i = 0; i < raw; i++) draft.pins.push({ num: "", name: "", side: side });
     renderPinRows(true);
   };
   builderEl.querySelector("#pbClearPins").onclick = () => {
@@ -3452,17 +3479,23 @@ function validateLayout(d) {
   }
   const comps = Array.isArray(d.components) ? d.components : [];
   const seenPin = new Set(), seenComp = new Set();
+  // An id must be a scalar (string or number). A JSON object id passed the old
+  // truthiness test, was stored as an object, and crashed the first click on it.
+  const scalarId = v => (typeof v === "string" && v) ? v
+                      : (typeof v === "number" && isFinite(v)) ? String(v) : null;
   const outComps = [];
   for (const c of comps) {
-    if (!c || typeof c !== "object" || !c.id) { problems.push("component without an id"); continue; }
-    if (seenComp.has(c.id)) { problems.push("duplicate component id " + c.id); continue; }
-    seenComp.add(c.id);
+    const cid = c && typeof c === "object" ? scalarId(c.id) : null;
+    if (!cid) { problems.push("component without a usable id"); continue; }
+    if (seenComp.has(cid)) { problems.push("duplicate component id " + cid); continue; }
+    seenComp.add(cid);
     const pins = [];
     for (const pin of (Array.isArray(c.pins) ? c.pins : [])) {
-      if (!pin || !pin.id) { problems.push("pin without an id on " + c.id); continue; }
-      if (seenPin.has(pin.id)) { problems.push("duplicate pin id " + pin.id); continue; }
-      seenPin.add(pin.id);
-      const kept = { id: pin.id, name: String(pin.name == null ? "" : pin.name),
+      const pid = pin ? scalarId(pin.id) : null;
+      if (!pid) { problems.push("pin without a usable id on " + cid); continue; }
+      if (seenPin.has(pid)) { problems.push("duplicate pin id " + pid); continue; }
+      seenPin.add(pid);
+      const kept = { id: pid, name: String(pin.name == null ? "" : pin.name),
                      num: String(pin.num == null ? "" : pin.num),
                      side: ["left","right","top","bottom"].includes(pin.side) ? pin.side : "left" };
       // Whitelisted, so anything new has to be added here too or it is silently
@@ -3471,7 +3504,7 @@ function validateLayout(d) {
       if (Number.isFinite(Number(pin.ord))) kept.ord = Number(pin.ord);
       pins.push(kept);
     }
-    const outC = { id: c.id, label: String(c.label == null ? "Part" : c.label),
+    const outC = { id: cid, label: String(c.label == null ? "Part" : c.label),
                    x: finiteOr(c.x, 0), y: finiteOr(c.y, 0),
                    w: clampNum(c.w, 40, 4096), h: clampNum(c.h, 40, 4096),
                    shape: VALID_SHAPES.has(c.shape) ? c.shape : "rect",
@@ -3485,14 +3518,15 @@ function validateLayout(d) {
   }
   const outWires = [], seenWire = new Set(), pairSeen = new Set();
   for (const w of (Array.isArray(d.wires) ? d.wires : [])) {
-    if (!w || !w.id) { problems.push("wire without an id"); continue; }
-    if (seenWire.has(w.id)) { problems.push("duplicate wire id " + w.id); continue; }
-    if (!seenPin.has(w.from) || !seenPin.has(w.to)) { problems.push("wire " + w.id + " references a missing pin"); continue; }
-    if (w.from === w.to) { problems.push("wire " + w.id + " joins a pin to itself"); continue; }
-    const key = [w.from, w.to].sort().join("~");
+    const wid = w ? scalarId(w.id) : null, wfrom = w ? scalarId(w.from) : null, wto = w ? scalarId(w.to) : null;
+    if (!wid) { problems.push("wire without a usable id"); continue; }
+    if (seenWire.has(wid)) { problems.push("duplicate wire id " + wid); continue; }
+    if (!wfrom || !wto || !seenPin.has(wfrom) || !seenPin.has(wto)) { problems.push("wire " + wid + " references a missing pin"); continue; }
+    if (wfrom === wto) { problems.push("wire " + wid + " joins a pin to itself"); continue; }
+    const key = [wfrom, wto].sort().join("~");
     if (pairSeen.has(key)) { problems.push("duplicate connection " + key); continue; }
-    pairSeen.add(key); seenWire.add(w.id);
-    const wire = { id: w.id, from: w.from, to: w.to, color: safeColor(w.color) };
+    pairSeen.add(key); seenWire.add(wid);
+    const wire = { id: wid, from: wfrom, to: wto, color: safeColor(w.color) };
     if (Array.isArray(w.waypoints)) {
       const wp = w.waypoints.filter(q => q && isFinite(q.x) && isFinite(q.y))
                             .map(q => ({ x: +q.x, y: +q.y }));
@@ -3503,9 +3537,10 @@ function validateLayout(d) {
   }
   const outNotes = [], seenNote = new Set();
   for (const n of (Array.isArray(d.notes) ? d.notes : [])) {
-    if (!n || !n.id || seenNote.has(n.id)) { problems.push("bad or duplicate note"); continue; }
-    seenNote.add(n.id);
-    const note = { id: n.id, x: finiteOr(n.x, 0), y: finiteOr(n.y, 0),
+    const nid = n ? scalarId(n.id) : null;
+    if (!nid || seenNote.has(nid)) { problems.push("bad or duplicate note"); continue; }
+    seenNote.add(nid);
+    const note = { id: nid, x: finiteOr(n.x, 0), y: finiteOr(n.y, 0),
                    w: clampNum(n.w, 120, 460), text: String(n.text == null ? "" : n.text) };
     // Appearance is part of the note. Leaving these out meant every Load and
     // every session restore quietly reset a styled note to plain paper.
@@ -3600,7 +3635,10 @@ function buildLibrary() {
   libEl.querySelectorAll("[data-del]").forEach(btn => {
     btn.onclick = (e) => { e.stopPropagation(); deleteUserPart(btn.dataset.del); };
   });
-  libEl.querySelectorAll(".lib-card").forEach(card => {
+  // Only the part cards place a part. #libNew has no data-part and keeps its own
+  // handler (open the builder) set above — binding every .lib-card here used to
+  // overwrite it, so the empty library's only entry point did nothing.
+  libEl.querySelectorAll(".lib-card[data-part]").forEach(card => {
     card.onclick = () => { const p = allParts().find(x => x.name === card.dataset.part); if (p) addFromPart(p); };
   });
 }

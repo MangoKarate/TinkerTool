@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.7 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.8 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -24,14 +24,14 @@ from any device at your Pages URL.
   obvious before you save. Parts are stored in this browser and can be edited or
   removed later. Saved layouts carry their own definitions, so they open whether
   or not the library has the part.
-- **Shapes** — `+ Component` draws parts as silhouettes rather than boxes: DIP
-  IC, module, display, screw terminal block, resistor, electrolytic seen from
-  above or from the side, diode, LED with dome and flange, TO-220 with its tab,
-  TO-92, push button, potentiometer, servo with flanges, speaker, barrel jack —
-  plus plain rectangle, rounded, circle and a splice marker. Pins follow the
-  real outline, so an LED's pins sit on its flange and a TO-92's on its curved
-  back. The outline is all there is: the inside of a block stays empty so pin
-  names and numbers own that space.
+- **Shapes** — `+ Component` draws parts as silhouettes rather than boxes. The
+  picker offers nine visually-distinct outlines: Rectangle, Rounded, Circle,
+  Splice, LED, Capacitor, TO-220, TO-92 and Servo. Pins follow the real outline,
+  so an LED's pins sit on its flange and a TO-92's on its curved back, and the
+  inside of a block stays empty so pin names and numbers own that space. Layouts
+  saved with earlier shapes (module, DIP, terminal, resistor, diode, and the
+  rest) still load and render exactly as before — only the picker was trimmed to
+  shapes you can tell apart.
 - **Components** — adding one asks how many pins it has, unless the package
   fixes that already (a resistor has two leads and always will). Pins space
   themselves evenly and the block grows to hold them, so a 30-pin breakout is
@@ -149,6 +149,28 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.8
+Closed the v2.7 QC review (a dynamic review — the reviewer drove the app).
+- **The empty library's "+ New part…" card works again.** A later loop that
+  bound every card's click had overwritten the New card's own handler, so the
+  one entry point into the part builder did nothing — on an empty library, that
+  blocked the whole workflow.
+- **Cancelling a double-click no longer resurrects a wire on Undo.** When a
+  double-click on an armed pin took back the wire the first click made, both the
+  add and the take-back had landed in history; Undo replayed the middle. The
+  whole gesture now leaves no trace.
+- **Parallel mixed-corner wires on one component each get their own lane** on
+  both rails, so their colours stay separable instead of one painting over
+  another along a shared run.
+- **A fractional pin count is rejected, not silently rounded** — 1.5 pins no
+  longer quietly becomes 2. Same for the builder's bulk-row add.
+- **A drag is no longer misread as half of a double-click** — releasing a drag
+  and clicking again won't pop the rename box, and the two clicks must land near
+  each other, not just close in time.
+- **A hand-edited layout with a non-string id is refused cleanly** instead of
+  loading and crashing on the first click.
+- **Escape closes the pin editor** (and the pin-count dialog).
 
 ### v2.7
 Closed the second-opinion QC review of v2.6.
