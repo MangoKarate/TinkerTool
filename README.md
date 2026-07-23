@@ -186,6 +186,12 @@ Closed the second-opinion QC review of v2.6.
   visually-different ones (Rectangle, Rounded, Circle, Splice, LED, Capacitor,
   TO-220, TO-92, Servo). Older layouts keep every shape they already use — only
   the picker was trimmed, not what can be drawn or loaded.
+- **Double-click now works on boards and wires too**, not just pins — rename a
+  board, or remove a waypoint / reset a wire's routing. (Double-click had quietly
+  only worked on pins, because selecting a board or wire redraws it and the
+  browser never sees the second click land on the same node.)
+- **The side-panel wire list is numbered** to match the badges on each run and the
+  printed schedule, so a wire has one number everywhere.
 
 ### v2.6
 - **Saving a part to the library works again.** The save helper never returned
