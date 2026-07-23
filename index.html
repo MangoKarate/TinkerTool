@@ -186,6 +186,7 @@
     padding: 7px 8px; border-radius: 6px; margin-bottom: 5px; background: var(--chrome);
     border: 1px solid var(--line); font-family: var(--mono); font-size: 11px;
   }
+  .wire-item .wnum { flex-shrink: 0; min-width: 16px; text-align: right; color: var(--ink-mut); font-size: 10.5px; font-weight: 700; }
   .wire-item .swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(0,0,0,.35); }
   .wire-item .wlabel { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-mut); }
 
@@ -1709,10 +1710,12 @@ function renderWireList() {
   const wl = document.getElementById("wireList");
   if (!state.wires.length) { wl.innerHTML = '<div class="empty">No connections yet.</div>'; return; }
   wl.innerHTML = "";
-  for (const w of state.wires) {
+  state.wires.forEach((w, i) => {
     const a = findPin(w.from), b = findPin(w.to);
-    if (!a || !b) continue;
+    if (!a || !b) return;
     const item = document.createElement("div"); item.className = "wire-item";
+    // Same number the badge draws on the run and the printed schedule uses.
+    const nb = document.createElement("span"); nb.className = "wnum"; nb.textContent = (i + 1);
     const sw = document.createElement("div"); sw.className = "swatch"; sw.style.background = w.color;
     const cp = document.createElement("input"); cp.type = "color"; cp.value = w.color;
     cp.style.cssText = "width:16px;height:16px;flex-shrink:0;";
@@ -1722,9 +1725,9 @@ function renderWireList() {
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
     del.setAttribute("aria-label", "Delete wire " + a.comp.label + " " + a.pin.name + " to " + b.comp.label + " " + b.pin.name);
     del.onclick = () => deleteWire(w.id);
-    item.appendChild(cp); item.appendChild(lab); item.appendChild(del);
+    item.appendChild(nb); item.appendChild(cp); item.appendChild(lab); item.appendChild(del);
     wl.appendChild(item);
-  }
+  });
 }
 
 // ---------- helpers ----------
@@ -1995,6 +1998,21 @@ svg.addEventListener("pointerdown", (e) => {
     const w = state.wires.find(x => x.id === wireEl.dataset.wire);
     if (w) {
       const pt = toWorld(e.clientX, e.clientY);
+      const nowW = Date.now();
+      if (lastTap.kind === "wire" && lastTap.id === w.id && nowW - lastTap.at < 350) {
+        lastTap = { kind: null, id: null, at: 0 };
+        // Double-click: remove the nearest waypoint, or reset routing if none is close.
+        if (w.waypoints && w.waypoints.length) {
+          let di = -1, dBest = WAYPOINT_GRAB * 1.6;
+          w.waypoints.forEach((q, i) => { const d = Math.hypot(q.x - pt.x, q.y - pt.y); if (d < dBest) { dBest = d; di = i; } });
+          if (di >= 0) { w.waypoints.splice(di, 1); toast("Waypoint removed."); }
+          else { delete w.waypoints; toast("Wire routing reset."); }
+          if (w.waypoints && !w.waypoints.length) delete w.waypoints;
+        } else { toast("No waypoints on this wire."); }
+        selectOnly("wire", w.id); renderAll(); markDirty();
+        e.preventDefault(); return;
+      }
+      lastTap = { kind: "wire", id: w.id, at: nowW };
       // Read only. Creating the array here counted as an edit, so a click that
       // changed nothing still landed in the undo history.
       const existing = Array.isArray(w.waypoints) ? w.waypoints : [];
@@ -2017,6 +2035,15 @@ svg.addEventListener("pointerdown", (e) => {
   }
   if (bodyEl) {
     const c = state.components.find(c => c.id === bodyEl.dataset.body);
+    const nowB = Date.now();
+    if (lastTap.kind === "comp" && lastTap.id === c.id && nowB - lastTap.at < 350) {
+      lastTap = { kind: null, id: null, at: 0 };
+      selectOnly("comp", c.id); renderAll();
+      const nm = prompt("Component name:", c.label);
+      if (nm !== null) { c.label = nm || "Part"; renderAll(); }
+      e.preventDefault(); return;
+    }
+    lastTap = { kind: "comp", id: c.id, at: nowB };
     selectOnly("comp", c.id);
     const w = toWorld(e.clientX, e.clientY);
     drag = { type: "comp", id: c.id, dx: w.x - c.x, dy: w.y - c.y, moved: false, pointerId: e.pointerId };
@@ -2179,37 +2206,14 @@ function openPinEditor(c, p, clientX, clientY) {
   name.focus(); name.select();
 }
 
-svg.addEventListener("dblclick", (e) => {
-  if (overlayOpen()) return;
-  // Pins are handled in handlePinClick on pointerdown — it opens the editor and
-  // can undo an accidental wire, and does not rely on the native dblclick
-  // surviving the re-render between the two taps.
-  if (e.target.closest("[data-pin]")) return;
-  const bodyEl = e.target.closest("[data-body]");
-  if (bodyEl) {
-    const c = state.components.find(x => x.id === bodyEl.dataset.body);
-    if (!c) return;
-    const t = prompt("Component name:", c.label);
-    if (t !== null) { c.label = t; renderAll(); }
-    return;
-  }
-  const wireEl = e.target.closest("[data-wire]");
-  if (!wireEl) return;
-  const w = state.wires.find(x => x.id === wireEl.dataset.wire);
-  if (!w || !w.waypoints || !w.waypoints.length) return;
-  const pt = toWorld(e.clientX, e.clientY);
-  let idx = -1, bestD = WAYPOINT_GRAB * 1.6;
-  w.waypoints.forEach((q, i) => {
-    const d = Math.hypot(q.x - pt.x, q.y - pt.y);
-    if (d < bestD) { bestD = d; idx = i; }
-  });
-  if (idx >= 0) { w.waypoints.splice(idx, 1); toast("Waypoint removed."); }
-  else { delete w.waypoints; toast("Wire routing reset."); }
-  if (w.waypoints && !w.waypoints.length) delete w.waypoints;
-  renderAll(); markDirty();
-});
+// Double-click on pins, boards and wires is handled on pointerdown (via
+// handlePinClick and the lastTap tracker); the native dblclick does not fire
+// reliably here because the first click replaces the node being clicked.
 
 let lastPinTap = { id: null, at: 0 };
+// Boards and wires select-and-redraw on the first tap, which replaces the SVG
+// node, so the browser never fires a native dblclick on them. Detect it here.
+let lastTap = { kind: null, id: null, at: 0 };
 let tapWire = null;   // the wire the most recent tap created, so a double-tap can take it back
 function handlePinClick(pinId, clientX, clientY) {
   const now = Date.now();
