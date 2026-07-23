@@ -1551,6 +1551,12 @@ function renderEditor() {
   const shLab = document.createElement("label"); shLab.className = "fld"; shLab.style.flex = "1";
   const shTxt = document.createElement("span"); shTxt.textContent = "Shape";
   const shSel = document.createElement("select");
+  // A component loaded with a consolidated-away shape keeps it; offer it here so
+  // editing the part does not silently change how it looks.
+  if (!SHAPES.some(sh => sh[0] === (c.shape || "rect"))) {
+    const o = document.createElement("option"); o.value = c.shape;
+    o.textContent = c.shape + " (as saved)"; o.selected = true; shSel.appendChild(o);
+  }
   for (const sh of SHAPES) {
     const o = document.createElement("option"); o.value = sh[0]; o.textContent = sh[1];
     if ((c.shape || "rect") === sh[0]) o.selected = true;
@@ -1797,34 +1803,25 @@ function updateArmBanner() {
 
 // ---------- Add component ----------
 const SHAPES = [
-  ["rect",      "Rectangle",    "Plain block",                   "Basic"],
+  ["rect",      "Rectangle",    "Board, chip or module",         "Basic"],
   ["rounded",   "Rounded",      "Soft-edged block",              "Basic"],
   ["circle",    "Circle",       "Round part",                    "Basic"],
   ["diamond",   "Splice",       "Y-splice or junction",          "Basic"],
 
-  ["dip",       "DIP IC",       "Dual-inline chip",              "Chips & boards"],
-  ["board",     "Module / PCB", "Breakout board",                "Chips & boards"],
-  ["display",   "Display",      "Screen module",                 "Chips & boards"],
-  ["terminal",  "Terminal block","Wired terminal block",         "Chips & boards"],
-
-  ["resistor",  "Resistor",     "Axial passive",                 "Passives"],
-  ["ecap",      "Electrolytic", "Capacitor, top view",           "Passives"],
-  ["ecan",      "Capacitor can","From the side",                 "Passives"],
-  ["diode",     "Diode",        "Axial diode",                   "Passives"],
   ["led",       "LED",          "Dome, body and flange",         "Passives"],
+  ["ecan",      "Capacitor",    "Electrolytic, from the side",   "Passives"],
 
   ["to220",     "TO-220",       "Regulator with a tab",          "Semis & I/O"],
-  ["to92",      "TO-92",        "Small transistor, flat front",  "Semis & I/O"],
-  ["button",    "Push button",  "Tactile switch",                "Semis & I/O"],
-  ["pot",       "Potentiometer","Variable resistor",             "Semis & I/O"],
-  ["servo",     "Servo",        "Case with mounting flanges",    "Semis & I/O"],
-  ["speaker",   "Speaker",      "Speaker / buzzer",              "Semis & I/O"],
-  ["barrel",    "Barrel jack",  "DC power inlet",                "Semis & I/O"]
+  ["to92",      "TO-92",        "Transistor, flat front",        "Semis & I/O"],
+  ["servo",     "Servo",        "Case with mounting flanges",    "Semis & I/O"]
 ];
-// The only shapes a loaded layout may name. Guards against a hostile or corrupt
-// shape string — "toString", "__proto__" — reaching the renderer and throwing
-// after live state has already been replaced.
-const VALID_SHAPES = new Set(SHAPES.map(s => s[0]));
+// Which shapes a loaded layout may name. The picker was consolidated to
+// visually-distinct silhouettes, but every shape the renderer can still draw
+// stays valid, so an older file (or shelley-skelley-v31.json, which uses board,
+// display and terminal) loads and renders exactly as before. Also guards a
+// hostile shape string — "toString", "__proto__" — from reaching the renderer.
+const VALID_SHAPES = new Set(["rect", "circle", "ecap", "pot", "speaker"]
+  .concat(Object.keys(SHAPE_PTS), Object.keys(SHAPE_RX), SHAPES.map(s => s[0])));
 let shapeEl = null;
 function openShapePicker() {
   if (!shapeEl) {
