@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.5 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.7 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -149,6 +149,39 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.7
+Closed the second-opinion QC review of v2.6.
+- **Pasting a pinout no longer eats a name's first word.** With whitespace-only
+  columns, a leading token becomes the pin number only when it is a bare integer,
+  so `3V3 OUT` and `1.8V OUT` keep their names. Tab- or comma-separated columns
+  stay positional.
+- **Explicit power/ground/GPIO kinds survive the part builder.** Editing a saved
+  part and saving it no longer strips them, and the builder now has a per-pin
+  kind column so you can set them there too.
+- **Dense parts keep their size through Save and Load.** A 40- or 80-pin part
+  used to be clamped back down on reload until its pins overlapped again; loaded
+  components now grow to hold their pins.
+- **Double-clicking a pin never leaves a stray wire.** If a pin was armed, the
+  first click's wire is taken back when the second click opens the editor — and
+  the double-click is detected directly, so it works even though the canvas
+  redraws between clicks.
+- **The pin editor can't act on a deleted pin.** Its fields resolve the pin
+  fresh each time and the editor closes on Undo, Load or a deletion, so it can no
+  longer edit a ghost or delete live wires while leaving the pin behind.
+- **A hand-edited or corrupt layout can't crash the load.** An unknown shape or
+  pin kind, or a non-finite coordinate or counter, is normalised before it can
+  reach the renderer or poison future IDs.
+- **Parallel loops on one component no longer hide each other** — each takes its
+  own lane around the body.
+- **The printed sheet keeps pin colours** (power red, ground grey) with a small
+  legend, drops any wire-edit handles, and preserves line breaks in notes.
+- Smaller fixes: dropping a waypoint onto a bent run joins the right leg; "IC
+  order" is idempotent; the pin classifier reads real datasheet names
+  (`AVDD`, `GNDA`, `+5V`, `3V3(OUT)`) and ignores control lines like `PWR_EN`;
+  circle and diamond parts stay square on every path; the pin-count dialog resets
+  its defaults and rejects fractional counts; library saves are transactional;
+  and the picker descriptions no longer name marks that were removed.
 
 ### v2.6
 - **Saving a part to the library works again.** The save helper never returned

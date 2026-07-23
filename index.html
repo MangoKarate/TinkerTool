@@ -153,6 +153,7 @@
     display: grid; grid-template-columns: 46px 1fr 72px 24px 24px 24px; gap: 5px;
     align-items: center; margin-bottom: 6px;
   }
+  .pin-row.pb-row { grid-template-columns: 42px 1fr 56px 60px 22px 22px 22px; }
   .pin-row > * { min-width: 0; }
   .pin-row button.tiny { padding: 3px 0; text-align: center; }
   .pin-row .pin-mono { font-family: var(--mono); font-size: 12px; }
@@ -216,7 +217,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.6</span>
+      <span class="ver" id="verTag">v2.7</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -507,22 +508,37 @@ const PIN_KINDS = {
   signal: { label: "Signal", pad: "#6fa8c7" }
 };
 const PIN_KIND_ORDER = ["power", "gnd", "gpio", "signal"];
+// Own-property only: PIN_KINDS["toString"] would otherwise resolve an inherited
+// function and slip through as a "valid" kind.
+function validKind(k) { return typeof k === "string" && Object.prototype.hasOwnProperty.call(PIN_KINDS, k); }
 
 // A pinout copied off a datasheet already carries its convention in the names,
 // so guess from the name and let an explicit pin.kind override it.
 function guessPinKind(name) {
-  const s = String(name == null ? "" : name).toUpperCase().replace(/[\s_\-]/g, "");
+  // Strip spacing and bracketing so "3V3 (OUT)", "ADC_VREF", "GND_1" and
+  // "3.3V" all normalise to a comparable token.
+  const s = String(name == null ? "" : name).toUpperCase().replace(/[\s_()\[\].]/g, "");
   if (!s) return "signal";
-  // Grounds are often numbered (GND2) and rails are often written with a decimal
-  // point (3.3V) as well as with the point implied (3V3).
-  if (/^(VSS|GROUND|EARTH|0V)$/.test(s) || /GND\d*$/.test(s)) return "gnd";
-  if (/^(VCC|VDD|VIN|VBUS|VSYS|VBAT|VMOT|VREF|VOUT|PWR|POWER)/.test(s)) return "power";
-  if (/^\d+(\.\d+)?V\d*(OUT|IN)?$/.test(s) || /^V\+$/.test(s)) return "power";
-  if (/^(GPIO|GP|IO|D|A|P)\d+/.test(s)) return "gpio";
+  // Ground: a real GND token (optionally analog/digital/power-prefixed or
+  // numbered), VSS, or the spelled-out words. "NOTGND" and "OUT-" are NOT ground
+  // — only tokens that actually start with the rail name count.
+  if (/^[A-Z]?GND[AD]?\d*$/.test(s) || /^VSS\d*$/.test(s) ||
+      /^(GROUND|EARTH|0V|VEE)$/.test(s)) return "gnd";
+  // A control or status line borrows a rail's name but is a signal: VBUS_SENSE,
+  // PWR_EN, PGOOD, 3V3_DETECT. Vetoes the power guess below.
+  const control = /(SENSE|PGOOD|PWRGD|GOOD|DETECT|FAULT|FLT|CTRL|MON|ENABLE|RESET|RST)$/.test(s) || /EN$/.test(s);
+  const power = /^[AD]?VCC/.test(s) || /^[AD]?VDD/.test(s) ||
+               /^(VIN|VBUS|VSYS|VBAT|VMOT|VOUT|VDRIVE|IOVDD|PWR|POWER)/.test(s) ||
+               /VREF/.test(s) ||
+               /^\+?\d+V\d*(OUT|IN)?$/.test(s) || /^V\+$/.test(s) || /^\+V/.test(s);
+  if (power && !control) return "power";
+  // GPIO only when the name says so outright. Bare single-letter prefixes
+  // (D0, A0, and the generic default P1) are too often signal names to assume.
+  if (/^(GPIO|GP|IO)\d+$/.test(s)) return "gpio";
   return "signal";
 }
 function pinKind(p) {
-  return (p && p.kind && PIN_KINDS[p.kind]) ? p.kind : guessPinKind(p && p.name);
+  return (p && validKind(p.kind)) ? p.kind : guessPinKind(p && p.name);
 }
 
 // A pin needs room for its pad and its label. Below this pitch they overlap,
@@ -552,16 +568,22 @@ function fitComponent(c) {
 // breakout whose headers are labelled in order.
 function arrangePins(c, mode) {
   if (!c.pins.length) return;
+  // A stable logical ordinal, assigned once from the current order. Every
+  // arrangement derives from it, so choosing the same mode twice — or switching
+  // between modes — is idempotent instead of flipping the right column each time.
+  c.pins.forEach((p, i) => { if (typeof p.ord !== "number" || !isFinite(p.ord)) p.ord = i; });
+  const seq = c.pins.slice().sort((a, b) => a.ord - b.ord);
   if (mode === "single") {
-    for (const p of c.pins) p.side = "left";
+    for (const p of seq) p.side = "left";
+    c.pins = seq;
   } else {
-    const half = Math.ceil(c.pins.length / 2);
-    c.pins.forEach((p, i) => p.side = i < half ? "left" : "right");
-    if (mode === "dip") {
-      // pinPos lays each side out in array order, so reversing the right-hand
-      // group is what makes its numbering run bottom to top.
-      c.pins = c.pins.slice(0, half).concat(c.pins.slice(half).reverse());
-    }
+    const half = Math.ceil(seq.length / 2);
+    const left = seq.slice(0, half), right = seq.slice(half);
+    left.forEach(p => p.side = "left");
+    right.forEach(p => p.side = "right");
+    // pinPos lays each side out in array order; reversing the right group is what
+    // makes IC numbering run up the right-hand side.
+    c.pins = (mode === "dip") ? left.concat(right.slice().reverse()) : left.concat(right);
   }
   fitComponent(c);
 }
@@ -672,8 +694,42 @@ function orthoChain(start, through, end, leaveHoriz) {
   return out;
 }
 
-// Which leg of the run a new waypoint belongs to: the one it lengthens least.
-function waypointInsertIndex(pt, chainPts) {
+// Distance from a point to a segment, for hit-testing rendered wire legs.
+function ptSegDist(pt, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+  let t = L2 ? ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(pt.x - (a.x + t * dx), pt.y - (a.y + t * dy));
+}
+// Which interval of the waypoint list a new point joins. chainPts is
+// [pinA, ...waypoints, pinB]; the tidy route bends those into axis-aligned legs,
+// so a point dropped on an elbow must join the interval that elbow came from.
+// Measuring against the straight raw segments (the old rule) put it in the wrong
+// leg and made the route backtrack.
+function waypointInsertIndex(pt, chainPts, mode) {
+  const inner = chainPts.slice(1, -1), end = chainPts[chainPts.length - 1];
+  if ((mode || state.routing || "tidy") === "tidy" && inner.length) {
+    const out = [chainPts[0]], interval = [];   // interval[k] = raw interval of segment out[k]->out[k+1]
+    let horiz = true, idx = 0;
+    for (let j = 0; j <= inner.length; j++) {
+      const q = j < inner.length ? inner[j] : end;
+      const p = out[out.length - 1];
+      const dx = Math.abs(q.x - p.x), dy = Math.abs(q.y - p.y);
+      if (!(dx < 0.5 && dy < 0.5)) {
+        if (dx < 0.5)      { interval.push(idx); out.push(q); horiz = true; }
+        else if (dy < 0.5) { interval.push(idx); out.push(q); horiz = false; }
+        else { interval.push(idx); out.push(horiz ? { x: q.x, y: p.y } : { x: p.x, y: q.y });
+               interval.push(idx); out.push(q); }
+      }
+      if (j < inner.length) idx++;
+    }
+    let best = 0, bestD = Infinity;
+    for (let k = 0; k < out.length - 1; k++) {
+      const d = ptSegDist(pt, out[k], out[k + 1]);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    return interval.length ? interval[best] : 0;
+  }
   const man = (P, Q) => Math.abs(P.x - Q.x) + Math.abs(P.y - Q.y);
   let best = 0, bestCost = Infinity;
   for (let i = 0; i < chainPts.length - 1; i++) {
@@ -748,7 +804,12 @@ function wireRoute(a, b, aSide, bSide, mode, wps, ca, cb, lanes) {
       const left = ca.x - WIRE_CLEAR, right = ca.x + ca.w + WIRE_CLEAR;
       const midX = (p1.x + p2.x) / 2;
       const ring = Math.abs(midX - left) <= Math.abs(midX - right) ? left : right;
-      const pts0 = [a, p1, { x: ring, y: p1.y }, { x: ring, y: p2.y }, p2, b];
+      // Fan parallel loops outward by their lane, or two same-side loops draw the
+      // identical ring and one hides the other. Always steps away from the body,
+      // so a lane can never push the run back through it. Key off the base ring so
+      // the probe and draw passes group together.
+      const ringDraw = ring + (ring < ca.x ? -1 : 1) * vL.i * WIRE_LANE;
+      const pts0 = [a, p1, { x: ringDraw, y: p1.y }, { x: ringDraw, y: p2.y }, p2, b];
       return { d: roundedPath(pts0, WIRE_RADIUS), hKey: null,
                vKey: "self:" + ca.id + ":" + Math.round(ring / 4),
                hSort: 0, vSort: (p1.y + p2.y) / 2, axis: "x" };
@@ -759,7 +820,8 @@ function wireRoute(a, b, aSide, bSide, mode, wps, ca, cb, lanes) {
       const top = ca.y - WIRE_CLEAR, bot = ca.y + ca.h + WIRE_CLEAR;
       const midY = (p1.y + p2.y) / 2;
       const ring = Math.abs(midY - top) <= Math.abs(midY - bot) ? top : bot;
-      const pts0 = [a, p1, { x: p1.x, y: ring }, { x: p2.x, y: ring }, p2, b];
+      const ringDraw = ring + (ring < ca.y ? -1 : 1) * hL.i * WIRE_LANE;
+      const pts0 = [a, p1, { x: p1.x, y: ringDraw }, { x: p2.x, y: ringDraw }, p2, b];
       return { d: roundedPath(pts0, WIRE_RADIUS), hKey: "self:" + ca.id + ":" + Math.round(ring / 4),
                vKey: null, hSort: (p1.x + p2.x) / 2, vSort: 0, axis: "y" };
     }
@@ -771,12 +833,12 @@ function wireRoute(a, b, aSide, bSide, mode, wps, ca, cb, lanes) {
     const ringY = vSide === "top"  ? ca.y - WIRE_CLEAR : ca.y + ca.h + WIRE_CLEAR;
     const ringX = hSide === "left" ? ca.x - WIRE_CLEAR : ca.x + ca.w + WIRE_CLEAR;
     const aIsVertical = (aSide === "top" || aSide === "bottom");
+    const ringXDraw = ringX + (ringX < ca.x ? -1 : 1) * vL.i * WIRE_LANE;
     const pts0 = aIsVertical
-      ? [a, p1, { x: p1.x, y: ringY }, { x: ringX, y: ringY }, { x: ringX, y: p2.y }, p2, b]
-      : [a, p1, { x: ringX, y: p1.y }, { x: ringX, y: ringY }, { x: p2.x, y: ringY }, p2, b];
-    const cornerX = ringX;
+      ? [a, p1, { x: p1.x, y: ringY }, { x: ringXDraw, y: ringY }, { x: ringXDraw, y: p2.y }, p2, b]
+      : [a, p1, { x: ringXDraw, y: p1.y }, { x: ringXDraw, y: ringY }, { x: p2.x, y: ringY }, p2, b];
     return { d: roundedPath(pts0, WIRE_RADIUS), hKey: null,
-             vKey: "self:" + ca.id + ":" + Math.round(cornerX / 4),
+             vKey: "self:" + ca.id + ":" + Math.round(ringX / 4),
              hSort: 0, vSort: (p1.y + p2.y) / 2, axis: "both" };
   }
 
@@ -1473,8 +1535,8 @@ function renderEditor() {
   ed.appendChild(r1);
 
   const r2 = document.createElement("div"); r2.className = "row"; r2.style.marginTop = "8px";
-  r2.appendChild(field("Width", "number", c.w, v => { c.w = clampNum(v, 40, 600); renderBoard(); markDirty(); }));
-  r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 600); renderBoard(); markDirty(); }));
+  r2.appendChild(field("Width", "number", c.w, v => { c.w = clampNum(v, 40, 4096); fitComponent(c); renderBoard(); markDirty(); }));
+  r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 4096); fitComponent(c); renderBoard(); markDirty(); }));
   ed.appendChild(r2);
 
   const r3 = document.createElement("div"); r3.className = "row"; r3.style.marginTop = "8px";
@@ -1494,7 +1556,7 @@ function renderEditor() {
     if ((c.shape || "rect") === sh[0]) o.selected = true;
     shSel.appendChild(o);
   }
-  shSel.onchange = () => { c.shape = shSel.value; renderBoard(); markDirty(); };
+  shSel.onchange = () => { c.shape = shSel.value; fitComponent(c); renderBoard(); markDirty(); };
   shLab.appendChild(shTxt); shLab.appendChild(shSel);
   shRow.appendChild(shLab); ed.appendChild(shRow);
 
@@ -1669,6 +1731,9 @@ function field(labelText, type, value, onInput, grow) {
   return l;
 }
 const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || lo));
+// `Number(x) || 0` lets Infinity through (it is truthy); a hand-edited 1e309 in
+// a coordinate or in seq would then poison every later uid(). Force finite.
+const finiteOr = (v, dflt) => { const n = Number(v); return Number.isFinite(n) ? n : dflt; };
 
 function readableInk(hex) {
   const h = String(hex || "").replace("#", "");
@@ -1686,9 +1751,11 @@ function wireExists(a, b) {
   return state.wires.some(w => (w.from === a && w.to === b) || (w.from === b && w.to === a));
 }
 function addWire(a, b) {
-  if (a === b || wireExists(a, b)) return;
-  state.wires.push({ id: uid("w"), from: a, to: b, color: state.color });
+  if (a === b || wireExists(a, b)) return null;
+  const w = { id: uid("w"), from: a, to: b, color: state.color };
+  state.wires.push(w);
   renderAll();
+  return w;
 }
 function deleteWire(id) {
   state.wires = state.wires.filter(w => w.id !== id);
@@ -1703,6 +1770,7 @@ function deletePin(c, pinId) {
 }
 function deleteComponent(id) {
   const c = state.components.find(c => c.id === id); if (!c) return;
+  closePinEditor();
   const pinIds = new Set(c.pins.map(p => p.id));
   state.wires = state.wires.filter(w => !pinIds.has(w.from) && !pinIds.has(w.to));
   state.components = state.components.filter(c => c.id !== id);
@@ -1734,25 +1802,29 @@ const SHAPES = [
   ["circle",    "Circle",       "Round part",                    "Basic"],
   ["diamond",   "Splice",       "Y-splice or junction",          "Basic"],
 
-  ["dip",       "DIP IC",       "Notch and pin-1 dot",           "Chips & boards"],
-  ["board",     "Module / PCB", "Breakout with mounting holes",  "Chips & boards"],
-  ["display",   "Display",      "Screen with a bezel",           "Chips & boards"],
-  ["terminal",  "Terminal block","Screw terminals",              "Chips & boards"],
+  ["dip",       "DIP IC",       "Dual-inline chip",              "Chips & boards"],
+  ["board",     "Module / PCB", "Breakout board",                "Chips & boards"],
+  ["display",   "Display",      "Screen module",                 "Chips & boards"],
+  ["terminal",  "Terminal block","Wired terminal block",         "Chips & boards"],
 
-  ["resistor",  "Resistor",     "Axial body with bands",         "Passives"],
-  ["ecap",      "Electrolytic", "From above, polarity band",     "Passives"],
+  ["resistor",  "Resistor",     "Axial passive",                 "Passives"],
+  ["ecap",      "Electrolytic", "Capacitor, top view",           "Passives"],
   ["ecan",      "Capacitor can","From the side",                 "Passives"],
-  ["diode",     "Diode",        "Cathode band",                  "Passives"],
+  ["diode",     "Diode",        "Axial diode",                   "Passives"],
   ["led",       "LED",          "Dome, body and flange",         "Passives"],
 
   ["to220",     "TO-220",       "Regulator with a tab",          "Semis & I/O"],
   ["to92",      "TO-92",        "Small transistor, flat front",  "Semis & I/O"],
   ["button",    "Push button",  "Tactile switch",                "Semis & I/O"],
-  ["pot",       "Potentiometer","Shaft and body",                "Semis & I/O"],
+  ["pot",       "Potentiometer","Variable resistor",             "Semis & I/O"],
   ["servo",     "Servo",        "Case with mounting flanges",    "Semis & I/O"],
-  ["speaker",   "Speaker",      "Cone rings",                    "Semis & I/O"],
+  ["speaker",   "Speaker",      "Speaker / buzzer",              "Semis & I/O"],
   ["barrel",    "Barrel jack",  "DC power inlet",                "Semis & I/O"]
 ];
+// The only shapes a loaded layout may name. Guards against a hostile or corrupt
+// shape string — "toString", "__proto__" — reaching the renderer and throwing
+// after live state has already been replaced.
+const VALID_SHAPES = new Set(SHAPES.map(s => s[0]));
 let shapeEl = null;
 function openShapePicker() {
   if (!shapeEl) {
@@ -1870,7 +1942,7 @@ function openPinSetup(shape) {
     pinSetupEl.querySelector("#psX").onclick = closePinSetup;
     pinSetupEl.querySelector("#psCancel").onclick = closePinSetup;
     pinSetupEl.querySelector("#psAdd").onclick = () => {
-      const count = clampNum(pinSetupEl.querySelector("#psN").value, 0, 80);
+      const count = Math.round(clampNum(pinSetupEl.querySelector("#psN").value, 0, 80));
       const spec = { count: count,
                      prefix: pinSetupEl.querySelector("#psPrefix").value.trim(),
                      arrange: pinSetupEl.querySelector("#psArr").value };
@@ -1881,12 +1953,18 @@ function openPinSetup(shape) {
                   : "Added with no pins. Use + Pin to add them.");
     };
     pinSetupEl.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); pinSetupEl.querySelector("#psAdd").click(); }
+      // Enter confirms — but not when a button is focused, so Cancel/Close still work.
+      if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); pinSetupEl.querySelector("#psAdd").click(); }
       if (e.key === "Escape") closePinSetup();
     });
   }
   pinSetupEl.dataset.shape = shape;
   pinSetupEl.querySelector("#psTitle").textContent = "Pins for " + (meta ? meta[1] : "component");
+  // Reset to documented defaults so a reused dialog never carries the last part's
+  // count, prefix or arrangement into the next one.
+  pinSetupEl.querySelector("#psN").value = 8;
+  pinSetupEl.querySelector("#psPrefix").value = "P";
+  pinSetupEl.querySelector("#psArr").value = "dip";
   pinSetupEl.classList.add("show");
   const n = pinSetupEl.querySelector("#psN"); n.focus(); n.select();
 }
@@ -1911,7 +1989,7 @@ svg.addEventListener("pointerdown", (e) => {
     return;
   }
   if (pinEl) {
-    handlePinClick(pinEl.dataset.pin);
+    handlePinClick(pinEl.dataset.pin, e.clientX, e.clientY);
     e.preventDefault();
     return;
   }
@@ -1975,7 +2053,7 @@ svg.addEventListener("pointermove", (e) => {
       if (!Array.isArray(w.waypoints)) w.waypoints = [];
       const A = findPin(w.from), B = findPin(w.to);
       const chain = [pinPos(A.comp, A.pin)].concat(w.waypoints, [pinPos(B.comp, B.pin)]);
-      drag.wpIndex = waypointInsertIndex(drag.pending, chain);
+      drag.wpIndex = waypointInsertIndex(drag.pending, chain, w.route);
       w.waypoints.splice(drag.wpIndex, 0, { x: drag.pending.x, y: drag.pending.y });
       drag.ox = 0; drag.oy = 0;
       drag.pending = null;
@@ -2040,6 +2118,12 @@ let pinEdEl = null;
 function closePinEditor() { if (pinEdEl) { pinEdEl.remove(); pinEdEl = null; } }
 function openPinEditor(c, p, clientX, clientY) {
   closeCtxMenu(); closePinEditor();
+  // Resolve the pin by id inside every callback: an Undo, Load or deletion can
+  // replace the whole object graph while this popup is open, and a callback that
+  // held the old objects would edit a detached copy — or delete live wires while
+  // leaving the live pin behind.
+  const compId = c.id, pinId = p.id;
+  const live = () => { const f = findPin(pinId); return (f && f.comp.id === compId) ? f : null; };
   pinEdEl = document.createElement("div");
   pinEdEl.id = "pinEditor";
   pinEdEl.style.cssText =
@@ -2060,19 +2144,20 @@ function openPinEditor(c, p, clientX, clientY) {
   const num = document.createElement("input");
   num.type = "text"; num.value = p.num || ""; num.placeholder = "e.g. 39"; num.className = "pin-mono";
   field("Number", num);
-  num.oninput = () => { p.num = num.value.trim(); renderBoard(); markDirty(); };
+  num.oninput = () => { const f = live(); if (!f) return closePinEditor(); f.pin.num = num.value.trim(); renderBoard(); markDirty(); };
   const name = document.createElement("input");
   name.type = "text"; name.value = p.name || ""; name.placeholder = "e.g. VSYS"; name.className = "pin-mono";
   field("Name", name);
-  name.oninput = () => { p.name = name.value; renderBoard(); renderWireList(); markDirty();
-                         autoOpt.textContent = "Auto \u2014 " + PIN_KINDS[guessPinKind(p.name)].label; };
+  name.oninput = () => { const f = live(); if (!f) return closePinEditor();
+                         f.pin.name = name.value; renderBoard(); renderWireList(); markDirty();
+                         autoOpt.textContent = "Auto \u2014 " + PIN_KINDS[guessPinKind(f.pin.name)].label; };
   const side = document.createElement("select");
   for (const s of ["left", "right", "top", "bottom"]) {
     const o = document.createElement("option"); o.value = s; o.textContent = s;
     if (p.side === s) o.selected = true; side.appendChild(o);
   }
   field("Side", side);
-  side.onchange = () => { p.side = side.value; fitComponent(c); renderAll(); };
+  side.onchange = () => { const f = live(); if (!f) return closePinEditor(); f.pin.side = side.value; fitComponent(f.comp); renderAll(); };
   const kind = document.createElement("select");
   const autoOpt = document.createElement("option");
   autoOpt.value = ""; autoOpt.textContent = "Auto \u2014 " + PIN_KINDS[guessPinKind(p.name)].label;
@@ -2082,12 +2167,13 @@ function openPinEditor(c, p, clientX, clientY) {
     if (p.kind === k) o.selected = true; kind.appendChild(o);
   }
   field("Kind", kind);
-  kind.onchange = () => { if (kind.value) p.kind = kind.value; else delete p.kind;
+  kind.onchange = () => { const f = live(); if (!f) return closePinEditor();
+                          if (kind.value) f.pin.kind = kind.value; else delete f.pin.kind;
                           renderBoard(); markDirty(); };
   const del = document.createElement("button");
   del.className = "tiny danger"; del.textContent = "Delete pin";
   del.style.cssText = "width:100%;margin-top:3px;";
-  del.onclick = () => { closePinEditor(); deletePin(c, p.id); };
+  del.onclick = () => { const f = live(); closePinEditor(); if (f) deletePin(f.comp, pinId); };
   pinEdEl.appendChild(del);
   document.body.appendChild(pinEdEl);
   const r = pinEdEl.getBoundingClientRect();
@@ -2098,16 +2184,10 @@ function openPinEditor(c, p, clientX, clientY) {
 
 svg.addEventListener("dblclick", (e) => {
   if (overlayOpen()) return;
-  const pinEl = e.target.closest("[data-pin]");
-  if (pinEl) {
-    const f = findPin(pinEl.dataset.pin);
-    if (!f) return;
-    // The two clicks that got us here already toggled the arm state; clear it so
-    // the next click on another pin does not draw a wire nobody asked for.
-    state.armedPin = null; renderAll();
-    openPinEditor(f.comp, f.pin, e.clientX, e.clientY);
-    return;
-  }
+  // Pins are handled in handlePinClick on pointerdown — it opens the editor and
+  // can undo an accidental wire, and does not rely on the native dblclick
+  // surviving the re-render between the two taps.
+  if (e.target.closest("[data-pin]")) return;
   const bodyEl = e.target.closest("[data-body]");
   if (bodyEl) {
     const c = state.components.find(x => x.id === bodyEl.dataset.body);
@@ -2132,13 +2212,35 @@ svg.addEventListener("dblclick", (e) => {
   renderAll(); markDirty();
 });
 
-function handlePinClick(pinId) {
+let lastPinTap = { id: null, at: 0 };
+let tapWire = null;   // the wire the most recent tap created, so a double-tap can take it back
+function handlePinClick(pinId, clientX, clientY) {
+  const now = Date.now();
+  const isDouble = pinId === lastPinTap.id && (now - lastPinTap.at) < 350;
+  lastPinTap = { id: pinId, at: now };
+  if (isDouble) {
+    // The second tap of a double-click is an edit, not a connection. If the first
+    // tap just wired this pin — because another pin happened to be armed — take
+    // that wire back: the user was reaching for the editor, not drawing. Detecting
+    // the double-click here, rather than via a native dblclick, also survives the
+    // re-render between the two taps that can stop the browser firing dblclick.
+    if (tapWire && (now - tapWire.at) < 600 && (tapWire.from === pinId || tapWire.to === pinId)) {
+      deleteWire(tapWire.id);
+    }
+    tapWire = null;
+    state.armedPin = null;
+    const f = findPin(pinId);
+    renderAll();
+    if (f) openPinEditor(f.comp, f.pin, clientX || 0, clientY || 0);
+    return;
+  }
   if (state.armedPin === null) {
     state.armedPin = pinId;
   } else if (state.armedPin === pinId) {
     state.armedPin = null;
   } else {
-    addWire(state.armedPin, pinId);
+    const w = addWire(state.armedPin, pinId);
+    tapWire = w ? { id: w.id, from: w.from, to: w.to, at: now } : null;
     state.armedPin = null;
   }
   renderAll();
@@ -2160,7 +2262,7 @@ svg.addEventListener("wheel", (e) => {
 
 document.addEventListener("keydown", (e) => {
   const inField = e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" ||
-                               e.target.isContentEditable);
+                               e.target.tagName === "SELECT" || e.target.isContentEditable);
   if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && !inField) {
     e.preventDefault();
     if (e.shiftKey) redo(); else undo();
@@ -2469,16 +2571,16 @@ function buildReport() {
   if (!b) { alert("Add some components before printing a blueprint."); return; }
 
   // Render once with nothing selected so no highlight chrome ends up on the sheet
-  const keep = { sel: state.selected, note: state.selectedNote, arm: state.armedPin };
-  state.selected = null; state.selectedNote = null; state.armedPin = null;
+  const keep = { sel: state.selected, note: state.selectedNote, arm: state.armedPin, wire: state.selectedWire };
+  state.selected = null; state.selectedNote = null; state.armedPin = null; state.selectedWire = null;
   renderBoard();
   const clone = world.cloneNode(true);
-  state.selected = keep.sel; state.selectedNote = keep.note; state.armedPin = keep.arm;
+  state.selected = keep.sel; state.selectedNote = keep.note; state.armedPin = keep.arm; state.selectedWire = keep.wire;
   renderBoard();
 
   clone.removeAttribute("transform");
   const mat = clone.querySelector("#mat"); if (mat) mat.remove();
-  clone.querySelectorAll("[data-pin], [data-wire-hit]").forEach(el => el.remove());
+  clone.querySelectorAll("[data-pin], [data-wire-hit], [data-wp-handle]").forEach(el => el.remove());
   clone.querySelectorAll("#wireLayer path").forEach(p => { if (!p.dataset.wire) p.remove(); });
   // A white or pale jumper is invisible on white paper. Lay a dark casing under
   // every wire and keep the colour as the core, so hue still reads but the run
@@ -2511,7 +2613,7 @@ function buildReport() {
   }).join("");
 
   const notes = state.notes.length
-    ? '<ol class="notes">' + state.notes.map(n => '<li>' + esc(n.text) + '</li>').join("") + '</ol>'
+    ? '<ol class="notes">' + state.notes.map(n => '<li>' + esc(n.text).replace(/\r?\n/g, "<br>") + '</li>').join("") + '</ol>'
     : '<p class="none">No notes on this drawing.</p>';
   // <ol> numbering already matches the badge on each bubble, because both come
   // from the order of state.notes.
@@ -2541,6 +2643,9 @@ function buildReport() {
     '<div class="sheet"><div class="frame">' +
       '<div class="sheet1">' +
       '<div class="dwgwrap">' + drawing + '</div>' +
+      '<div class="pinkey">' +
+        PIN_KIND_ORDER.map(k => '<span><i style="background:' + PIN_KINDS[k].pad + '"></i>' + esc(PIN_KINDS[k].label) + '</span>').join('') +
+      '</div>' +
       '<div class="title">' +
         '<div class="grow"><span class="k">Project</span><span contenteditable>Untitled wiring diagram</span></div>' +
         '<div><span class="k">Drawn by</span><span contenteditable>&nbsp;</span></div>' +
@@ -2588,17 +2693,18 @@ const REPORT_CSS = `
 #reportOverlay svg.dwg #compLayer polygon { fill:#ffffff !important; stroke:#16324a !important; stroke-width:1.3 !important; }
 #reportOverlay svg.dwg #compLayer text { fill:#16324a !important; }
 #reportOverlay svg.dwg #compLayer rect[data-plate-for] { fill:#ffffff !important; stroke:#8a97a6 !important; }
-/* Silhouette marks are line/circle/path, not rect — without these they keep
-   their pale screen ink and disappear on white paper. */
-#reportOverlay svg.dwg #compLayer line,
-#reportOverlay svg.dwg #compLayer path,
-#reportOverlay svg.dwg #compLayer circle { stroke:#16324a !important; stroke-opacity:.75 !important; }
-#reportOverlay svg.dwg #compLayer path[fill]:not([fill="none"]),
-#reportOverlay svg.dwg #compLayer circle[fill]:not([fill="none"]) { fill:#16324a !important; fill-opacity:.2 !important; }
+/* Interior marks are gone; the only remaining line is the label divider. Darken
+   it for paper, but leave pin pads their kind colour — power red, ground grey —
+   so the blueprint keeps the distinction. A forced dark outline keeps even a pale
+   pad legible on white. */
+#reportOverlay svg.dwg #compLayer line { stroke:#16324a !important; stroke-opacity:.75 !important; }
+#reportOverlay svg.dwg #compLayer circle { stroke:#16324a !important; stroke-opacity:.9 !important; }
 #reportOverlay svg.dwg #noteLayer rect { fill:#fffbe6 !important; stroke:#b08b34 !important; }
 #reportOverlay svg.dwg #noteLayer text { fill:#4a3d1c !important; }
 #reportOverlay svg.dwg #wireLayer path { stroke-width:2.4 !important; }
 #reportOverlay svg.dwg #wireLayer path[data-casing] { stroke-width:4.4 !important; }
+#reportOverlay .pinkey { display:flex; gap:14px; justify-content:center; font-size:8pt; color:#41586b; margin-top:2mm; }
+#reportOverlay .pinkey i { display:inline-block; width:9px; height:9px; border-radius:50%; border:1px solid #16324a; margin-right:4px; vertical-align:-1px; }
 #reportOverlay .title { display:flex; margin-top:4mm; border:1.5px solid #16324a; }
 #reportOverlay .title div { padding:2.5mm 3mm; border-right:1px solid #16324a; font-size:10pt; }
 #reportOverlay .title div:last-child { border-right:0; }
@@ -2818,7 +2924,9 @@ function partToDraft(p) {
   for (const side of ["left", "right", "top", "bottom"]) {
     for (const item of (p[side] || [])) {
       const o = (typeof item === "string") ? { name: item } : item;
-      pins.push({ num: o.num || "", name: o.name || "", side: side });
+      const dp = { num: o.num || "", name: o.name || "", side: side };
+      if (validKind(o.kind)) dp.kind = o.kind;
+      pins.push(dp);
     }
   }
   return { name: p.name, cat: p.cat || "My parts", shape: p.shape || "rect",
@@ -2832,21 +2940,26 @@ function draftToPart(d) {
   if (d.color) part.color = d.color;
   for (const pin of d.pins) {
     if (!pin.name && !pin.num) continue;
-    part[pin.side].push(pin.num ? { name: pin.name, num: pin.num } : pin.name);
+    part[pin.side].push((pin.num || validKind(pin.kind))
+      ? { name: pin.name, num: pin.num || "", kind: validKind(pin.kind) ? pin.kind : undefined }
+      : pin.name);
   }
   return part;
 }
 function draftToComp(d) {
   const pins = d.pins.filter(p => p.name || p.num)
-    .map((p, i) => ({ id: "pv" + i, name: p.name, num: p.num, side: p.side }));
+    .map((p, i) => { const q = { id: "pv" + i, name: p.name, num: p.num, side: p.side };
+                     if (validKind(p.kind)) q.kind = p.kind; return q; });
   const sideMax = Math.max(pins.filter(p => p.side === "left").length,
                            pins.filter(p => p.side === "right").length, 1);
   const tbMax = Math.max(pins.filter(p => p.side === "top").length,
                          pins.filter(p => p.side === "bottom").length, 0);
   const h = +d.h || Math.max(70, sideMax * PIN_PITCH + PIN_ENDS);
   const w = Math.max(+d.w || 130, tbMax * PIN_PITCH_TB + PIN_ENDS);
-  return { id: "preview", x: 0, y: 0, w: w, h: h, label: d.name || "Untitled part",
-           shape: d.shape, color: d.color, pins: pins };
+  const comp = { id: "preview", x: 0, y: 0, w: w, h: h, label: d.name || "Untitled part",
+                 shape: d.shape, color: d.color, pins: pins };
+  fitComponent(comp);   // square circle/diamond so the preview matches the canvas
+  return comp;
 }
 
 // Same geometry helpers the canvas uses, so the preview cannot drift from reality.
@@ -3005,7 +3118,7 @@ function renderPinRows(scrollToEnd) {
     host.appendChild(e);
   }
   draft.pins.forEach((pin, i) => {
-    const row = document.createElement("div"); row.className = "pin-row";
+    const row = document.createElement("div"); row.className = "pin-row pb-row";
     const num = document.createElement("input");
     num.type = "text"; num.value = pin.num; num.placeholder = "#"; num.className = "pin-mono";
     num.style.cssText = "width:100%;text-align:center;";
@@ -3019,6 +3132,16 @@ function renderPinRows(scrollToEnd) {
       if (pin.side === sd) o.selected = true; side.appendChild(o);
     }
     side.onchange = () => { pin.side = side.value; refreshPreview(); };
+    const kind = document.createElement("select");
+    const autoO = document.createElement("option");
+    autoO.value = ""; autoO.textContent = "auto";
+    kind.appendChild(autoO);
+    for (const k of PIN_KIND_ORDER) {
+      const o = document.createElement("option"); o.value = k; o.textContent = PIN_KINDS[k].label.toLowerCase();
+      if (pin.kind === k) o.selected = true; kind.appendChild(o);
+    }
+    kind.title = "Pin kind — colours the pad; \"auto\" reads it from the name";
+    kind.onchange = () => { if (kind.value) pin.kind = kind.value; else delete pin.kind; refreshPreview(); };
     const up = document.createElement("button"); up.className = "tiny"; up.textContent = "↑";
     up.setAttribute("aria-label", "Move pin up");
     up.onclick = () => { if (i > 0) { const t = draft.pins[i-1]; draft.pins[i-1] = pin; draft.pins[i] = t; renderPinRows(); } };
@@ -3028,7 +3151,7 @@ function renderPinRows(scrollToEnd) {
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
     del.setAttribute("aria-label", "Delete this pin");
     del.onclick = () => { draft.pins.splice(i, 1); renderPinRows(); };
-    row.appendChild(num); row.appendChild(name); row.appendChild(side);
+    row.appendChild(num); row.appendChild(name); row.appendChild(side); row.appendChild(kind);
     row.appendChild(up); row.appendChild(dn); row.appendChild(del);
     host.appendChild(row);
   });
@@ -3055,13 +3178,21 @@ function pastePinout() {
     // Take the side off the end and the number off the front, whatever is left
     // is the name. Splitting on runs of whitespace first means a single-spaced
     // line — the format the help text shows — parses like a tabbed one.
+    // A tab or comma means the columns are explicit and positional — column one
+    // is the number. Whitespace alone is ambiguous, so there a leading token is
+    // taken as the number ONLY when it is a bare integer; otherwise "3V3 OUT" and
+    // "1.8V OUT" would lose their electrically meaningful first word to the number.
+    const columnar = /\t|,/.test(t);
     let parts = t.split(/\t|\s*,\s*|\s+/).map(x => x.trim()).filter(Boolean);
     let num = "", name = "", sd = side;
     if (parts.length > 1 && ["left","right","top","bottom"].includes(parts[parts.length-1].toLowerCase())) {
       sd = parts.pop().toLowerCase();
     }
-    if (parts.length > 1 && /\d/.test(parts[0]) && /^[\w.\-\/]+$/.test(parts[0])) {
-      num = parts.shift();
+    if (parts.length > 1) {
+      const first = parts[0];
+      const looksNumber = columnar ? (/\d/.test(first) && /^[\w.\-\/]+$/.test(first))
+                                   : /^\d+$/.test(first);
+      if (looksNumber) num = parts.shift();
     }
     name = parts.join(" ");
     if (!name && !num) continue;
@@ -3083,15 +3214,17 @@ function savePartFromBuilder() {
     if (!confirm('"' + name + '" is already in your library. Replace it?')) return;
   }
   const part = draftToPart(draft);
-  if (draftEditing) {
-    const at = USER_PARTS.findIndex(x => x.name === draftEditing);
-    if (at >= 0) USER_PARTS[at] = part; else USER_PARTS.push(part);
-  } else if (clash >= 0) {
-    USER_PARTS[clash] = part;
-  } else {
-    USER_PARTS.push(part);
-  }
-  if (!saveUserParts()) { alert("Could not save — this browser is blocking local storage."); return; }
+  // Build the next library, persist it, and only commit to memory/UI once the
+  // write succeeds — a blocked write used to leave a ghost part that vanished on
+  // reload. Renaming over an existing part drops BOTH the old editing slot and
+  // the collision target, so no duplicate name survives.
+  const next = USER_PARTS.slice();
+  const dropName = nm => { for (let i = next.length - 1; i >= 0; i--) if (next[i].name === nm) next.splice(i, 1); };
+  if (draftEditing) dropName(draftEditing);
+  dropName(name);
+  next.push(part);
+  if (!store.set(PARTS_KEY, next)) { alert("Could not save — this browser is blocking local storage."); return; }
+  USER_PARTS = next;
   rebuildLibrary();
   closePartBuilder();
   toast('Saved "' + name + '" with ' + usable.length + " pin" + (usable.length === 1 ? "" : "s") + ".");
@@ -3108,8 +3241,8 @@ function partPins(p) {
   const pins = [];
   const add = (arr, side) => (arr || []).forEach(n => {
     const o = (typeof n === "string") ? { name: n } : n;
-    const np = { id: uid("pin"), name: o.name, num: o.num || "", side };
-    if (o.kind && PIN_KINDS[o.kind]) np.kind = o.kind;
+    const np = { id: uid("pin"), name: o.name, num: o.num || "", side, ord: pins.length };
+    if (validKind(o.kind)) np.kind = o.kind;
     pins.push(np);
   });
   add(p.left, "left"); add(p.right, "right"); add(p.top, "top"); add(p.bottom, "bottom");
@@ -3129,6 +3262,7 @@ function addFromPart(p) {
   const comp = { id: uid("c"), x: pos.x, y: pos.y, w, h, label: p.name,
                  shape: p.shape || "rect", pins: partPins(p) };
   if (p.color) comp.color = p.color;
+  fitComponent(comp);
   state.components.push(comp);
   selectOnly("comp", comp.id);
   closeLibrary();
@@ -3160,19 +3294,18 @@ function saveToLibrary(c) {
   }
   if (c.color) part.color = c.color;
   const at = USER_PARTS.findIndex(x => x.name === name);
-  if (at >= 0) {
-    if (!confirm('"' + name + '" is already in your library. Replace it?')) return;
-    USER_PARTS[at] = part;
-  } else {
-    USER_PARTS.push(part);
-  }
-  if (!saveUserParts()) alert("Could not save — this browser is blocking local storage.");
+  if (at >= 0 && !confirm('"' + name + '" is already in your library. Replace it?')) return;
+  const next = USER_PARTS.filter(x => x.name !== name);
+  next.push(part);
+  if (!store.set(PARTS_KEY, next)) { alert("Could not save — this browser is blocking local storage."); return; }
+  USER_PARTS = next;
   rebuildLibrary();
 }
 function deleteUserPart(name) {
   if (!confirm('Remove "' + name + '" from your library? Boards already on the canvas are not affected.')) return;
-  USER_PARTS = USER_PARTS.filter(x => x.name !== name);
-  saveUserParts();
+  const next = USER_PARTS.filter(x => x.name !== name);
+  if (!store.set(PARTS_KEY, next)) { alert("Could not remove — this browser is blocking local storage."); return; }
+  USER_PARTS = next;
   rebuildLibrary();
 }
 
@@ -3213,6 +3346,7 @@ function commitHistory(label) {
 }
 function applyHistory(raw) {
   const d = JSON.parse(raw);
+  closePinEditor();
   restoring = true;
   state.components = d.components; state.wires = d.wires; state.notes = d.notes;
   state.routing = d.routing || "tidy";
@@ -3304,15 +3438,21 @@ function validateLayout(d) {
                      side: ["left","right","top","bottom"].includes(pin.side) ? pin.side : "left" };
       // Whitelisted, so anything new has to be added here too or it is silently
       // stripped on every load — which is exactly how note styling was lost once.
-      if (pin.kind && PIN_KINDS[pin.kind]) kept.kind = pin.kind;
+      if (validKind(pin.kind)) kept.kind = pin.kind;
+      if (Number.isFinite(Number(pin.ord))) kept.ord = Number(pin.ord);
       pins.push(kept);
     }
-    outComps.push({ id: c.id, label: String(c.label == null ? "Part" : c.label),
-                    x: Number(c.x) || 0, y: Number(c.y) || 0,
-                    w: clampNum(c.w, 40, 900), h: clampNum(c.h, 40, 900),
-                    shape: typeof c.shape === "string" ? c.shape : "rect",
-                    color: (typeof c.color === "string" && /^#[0-9a-fA-F]{6}$/.test(c.color.trim()))
-                             ? c.color.trim() : undefined, pins: pins });
+    const outC = { id: c.id, label: String(c.label == null ? "Part" : c.label),
+                   x: finiteOr(c.x, 0), y: finiteOr(c.y, 0),
+                   w: clampNum(c.w, 40, 4096), h: clampNum(c.h, 40, 4096),
+                   shape: VALID_SHAPES.has(c.shape) ? c.shape : "rect",
+                   color: (typeof c.color === "string" && /^#[0-9a-fA-F]{6}$/.test(c.color.trim()))
+                            ? c.color.trim() : undefined, pins: pins };
+    // A supported 40/80-pin part is taller than the old 900px clamp; grow it back
+    // to hold its pins rather than reloading it with the pins overlapping. Only
+    // ever grows, so a size the user set by hand is preserved.
+    fitComponent(outC);
+    outComps.push(outC);
   }
   const outWires = [], seenWire = new Set(), pairSeen = new Set();
   for (const w of (Array.isArray(d.wires) ? d.wires : [])) {
@@ -3336,7 +3476,7 @@ function validateLayout(d) {
   for (const n of (Array.isArray(d.notes) ? d.notes : [])) {
     if (!n || !n.id || seenNote.has(n.id)) { problems.push("bad or duplicate note"); continue; }
     seenNote.add(n.id);
-    const note = { id: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0,
+    const note = { id: n.id, x: finiteOr(n.x, 0), y: finiteOr(n.y, 0),
                    w: clampNum(n.w, 120, 460), text: String(n.text == null ? "" : n.text) };
     // Appearance is part of the note. Leaving these out meant every Load and
     // every session restore quietly reset a styled note to plain paper.
@@ -3357,11 +3497,12 @@ function validateLayout(d) {
                    labelPos: d.labelPos === "inside" ? "inside" : "banner",
                    gridMM: [0, 1, 2.54, 5, 10].includes(+d.gridMM) ? +d.gridMM : 0,
                    tidyVariant: Number(d.tidyVariant) || 0, wireVariant: Number(d.wireVariant) || 0,
-                   seq: Math.max(maxSeq + 1, Number(d.seq) || 0) } };
+                   seq: Math.max(maxSeq + 1, finiteOr(d.seq, 0)) } };
 }
 // Keeping the pre-load board as one undo step: a load that turns out to be the
 // wrong file used to be unrecoverable, because applyLayout cleared history.
 function applyLayout(x, keepHistory) {
+  closePinEditor();
   if (keepHistory) {
     const before = historySnapshot();
     if (lastCommitted !== null && before !== lastCommitted) past.push(lastCommitted);
