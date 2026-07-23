@@ -796,9 +796,33 @@ function wireRoute(a, b, aSide, bSide, mode, wps, ca, cb, lanes) {
   // A wire between two pins of the same board has no gap to run through, so the
   // usual mid-channel lands inside the body. Loop it around the nearest edge.
   if (ca && cb && ca.id === cb.id) {
-    // Ring around whichever pair of edges the two pins can actually reach. A
-    // horizontal ring only works for left/right pins; top and bottom pins need
-    // a vertical one, or the run goes straight back through the body.
+    // Both pins on the SAME edge: the shortest clean loop is a staple that bumps
+    // straight out that edge and runs back parallel to it, wholly outside the
+    // body. Ringing round a far edge — what this did before — sent a wire between
+    // two right-hand pins up and over the top of the board.
+    if (aSide === bSide) {
+      if (aSide === "left" || aSide === "right") {
+        // Vertical connector just outside the rightmost/leftmost of the two pins
+        // (their x differs on a rounded edge). Lane pushes it further out.
+        const base = aSide === "right" ? Math.max(a.x, b.x) + WIRE_STUB
+                                       : Math.min(a.x, b.x) - WIRE_STUB;
+        const outX = base + (aSide === "right" ? 1 : -1) * vL.i * WIRE_LANE;
+        const pts0 = [a, { x: outX, y: a.y }, { x: outX, y: b.y }, b];
+        return { d: roundedPath(pts0, WIRE_RADIUS), hKey: null,
+                 vKey: "selfV:" + ca.id + ":" + aSide + ":" + Math.round(base / 4),
+                 hSort: 0, vSort: (a.y + b.y) / 2, axis: "x" };
+      }
+      const base = aSide === "bottom" ? Math.max(a.y, b.y) + WIRE_STUB
+                                      : Math.min(a.y, b.y) - WIRE_STUB;
+      const outY = base + (aSide === "bottom" ? 1 : -1) * hL.i * WIRE_LANE;
+      const pts0 = [a, { x: a.x, y: outY }, { x: b.x, y: outY }, b];
+      return { d: roundedPath(pts0, WIRE_RADIUS),
+               hKey: "selfH:" + ca.id + ":" + aSide + ":" + Math.round(base / 4),
+               vKey: null, hSort: (a.x + b.x) / 2, vSort: 0, axis: "y" };
+    }
+    // Opposite or adjacent sides: ring around a perpendicular edge. A horizontal
+    // ring only works for left/right pins; top and bottom pins need a vertical
+    // one, or the run goes straight back through the body.
     const vertical = (aSide === "top" || aSide === "bottom") &&
                      (bSide === "top" || bSide === "bottom");
     if (vertical) {
@@ -2001,15 +2025,19 @@ svg.addEventListener("pointerdown", (e) => {
       const nowW = Date.now();
       if (lastTap.kind === "wire" && lastTap.id === w.id && nowW - lastTap.at < 350) {
         lastTap = { kind: null, id: null, at: 0 };
-        // Double-click: remove the nearest waypoint, or reset routing if none is close.
+        // Double-click removes a hand-placed bend: the nearest waypoint, or all of
+        // them if the click is not near one. A wire on its automatic route has
+        // nothing to remove, so it just stays selected — no dead-end message.
         if (w.waypoints && w.waypoints.length) {
           let di = -1, dBest = WAYPOINT_GRAB * 1.6;
           w.waypoints.forEach((q, i) => { const d = Math.hypot(q.x - pt.x, q.y - pt.y); if (d < dBest) { dBest = d; di = i; } });
           if (di >= 0) { w.waypoints.splice(di, 1); toast("Waypoint removed."); }
           else { delete w.waypoints; toast("Wire routing reset."); }
           if (w.waypoints && !w.waypoints.length) delete w.waypoints;
-        } else { toast("No waypoints on this wire."); }
-        selectOnly("wire", w.id); renderAll(); markDirty();
+          selectOnly("wire", w.id); renderAll(); markDirty();
+        } else {
+          selectOnly("wire", w.id); renderBoard();
+        }
         e.preventDefault(); return;
       }
       lastTap = { kind: "wire", id: w.id, at: nowW };
