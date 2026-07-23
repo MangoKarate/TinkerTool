@@ -180,8 +180,12 @@ Closed the second-opinion QC review of v2.6.
   order" is idempotent; the pin classifier reads real datasheet names
   (`AVDD`, `GNDA`, `+5V`, `3V3(OUT)`) and ignores control lines like `PWR_EN`;
   circle and diamond parts stay square on every path; the pin-count dialog resets
-  its defaults and rejects fractional counts; library saves are transactional;
-  and the picker descriptions no longer name marks that were removed.
+  its defaults and rejects fractional counts; and library saves are transactional.
+- **The shape picker is consolidated to distinct silhouettes.** With the interior
+  marks gone, many shapes drew the same outline; the picker now offers only
+  visually-different ones (Rectangle, Rounded, Circle, Splice, LED, Capacitor,
+  TO-220, TO-92, Servo). Older layouts keep every shape they already use — only
+  the picker was trimmed, not what can be drawn or loaded.
 
 ### v2.6
 - **Saving a part to the library works again.** The save helper never returned
