@@ -192,6 +192,10 @@ Closed the second-opinion QC review of v2.6.
   browser never sees the second click land on the same node.)
 - **The side-panel wire list is numbered** to match the badges on each run and the
   printed schedule, so a wire has one number everywhere.
+- **A wire between two pins on the same edge now takes the short way.** It used to
+  ring around a far edge — a wire from pin 4 to pin 8 on the right side climbed up
+  over the top of the board. It now staples straight out that edge and back,
+  outside the body, with 90° turns; parallel same-edge loops nest side by side.
 
 ### v2.6
 - **Saving a part to the library works again.** The save helper never returned
