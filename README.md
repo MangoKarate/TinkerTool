@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.8 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.9 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -69,10 +69,15 @@ from any device at your Pages URL.
   board placements (nudge in place, columns, rows, columns ordered by how many
   wires a board carries) and four routing styles (channel position, which edge
   wires escape around, lane order). Routing also clears hand-placed waypoints.
-- **Colors** — pick from the classic jumper-wire palette (or a custom color);
-  every wire's color is editable afterward. Components take a color too, from a
-  preset row or a picker; labels flip between light and dark ink automatically
-  so they stay readable on any background.
+- **Colors** — the palette is the standard resistor / hookup-wire colour code
+  (black, brown, red, orange, yellow, green, blue, violet, grey, white, plus pink
+  and cyan), and **every swatch shows its three-letter code inside it** — BLK,
+  RED, GRN — so picking a wire colour never depends on telling two colours apart.
+  **Click a wire's number badge on the run** to recolour it. Wherever colours are
+  chosen there is a hex field that works both ways: pick a swatch and the hex
+  fills in, type a hex and the preview and name follow. Components take a colour
+  the same way; labels flip between light and dark ink automatically so they stay
+  readable on any background.
 - **Names** — component names sit on a plate above each block by default, clear
   of the pin text, and show in full rather than being clipped. Switch to
   `Name: inside` for the older look.
@@ -149,6 +154,20 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.9
+- **Every colour swatch shows its three-letter code** — BLK, BRN, RED, ORN, YEL,
+  GRN, BLU, VIO, GRY, WHT, PNK, CYN — drawn inside the swatch, so choosing a
+  wire colour never depends on telling two colours apart. The palette is the
+  standard resistor / hookup-wire colour code in its usual order, which is the
+  convention maker projects already follow, plus pink and cyan for ribbon leads.
+- **Click a wire's number in the diagram to recolour it.** The badge on the run
+  is now the fastest way to change a wire.
+- **A hex field that works both ways.** Pick a swatch and the hex fills in; type
+  a hex and the preview and name follow. It names the colour it recognises
+  (`RED — Red`) and says `Custom colour` when it doesn't.
+- The wire list, the right-click menus and the panel palette all use the same
+  labelled swatches, and the wire list chips show each wire's colour code.
 
 ### v2.8
 Closed the v2.7 QC review (a dynamic review — the reviewer drove the app).

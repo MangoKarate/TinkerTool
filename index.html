@@ -170,10 +170,16 @@
   /* wire color swatches */
   .swatches { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
   .sw {
-    width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+    width: 34px; height: 26px; border-radius: 7px; cursor: pointer;
     border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
-    position: relative;
+    position: relative; padding: 0;
+    font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .03em;
   }
+  /* Hex field sits on its own line under the swatches. */
+  .sw-hex { flex: 0 0 100%; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .sw-hex-chip { width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0; border: 1px solid rgba(0,0,0,.4); }
+  .sw-hex input { flex: 1; min-width: 0; text-transform: uppercase; font-size: 11px; }
+  .sw-hex-name { font-family: var(--mono); font-size: 10px; color: var(--ink-mut); min-width: 46px; }
   .sw.active { border-color: var(--ink); box-shadow: inset 0 0 0 1px rgba(0,0,0,.25), 0 0 0 2px var(--accent); }
   .sw-custom { display: flex; align-items: center; justify-content: center; }
   input[type="color"] { width: 26px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; }
@@ -218,7 +224,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.8</span>
+      <span class="ver" id="verTag">v2.9</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -368,11 +374,21 @@ function overlayOpen() {
 // Which axis each wire's channel can actually slide along, filled in on render.
 const wireAxis = new Map();
 
+// The resistor / hookup-wire colour code, in its standard order — the
+// convention every maker project already follows — plus pink and cyan, which
+// turn up on ribbon and JST leads. Each entry is [name, hex, three-letter code].
+// The code is drawn INSIDE the swatch: colour alone is not readable for
+// everyone, and it is the same abbreviation the wire schedule prints.
 const WIRE_COLORS = [
-  ["Red", "#d94141"], ["Black", "#22262e"], ["Yellow", "#e5c53a"],
-  ["Green", "#3fae5a"], ["Blue", "#3d7fd9"], ["Orange", "#e08a3c"],
-  ["White", "#f2f2ee"], ["Purple", "#9b5cd0"], ["Brown", "#8a5a3c"], ["Gray", "#8a94a0"]
+  ["Black",  "#22262e", "BLK"], ["Brown",  "#8a5a3c", "BRN"],
+  ["Red",    "#d94141", "RED"], ["Orange", "#e08a3c", "ORN"],
+  ["Yellow", "#e5c53a", "YEL"], ["Green",  "#3fae5a", "GRN"],
+  ["Blue",   "#3d7fd9", "BLU"], ["Violet", "#9b5cd0", "VIO"],
+  ["Grey",   "#8a94a0", "GRY"], ["White",  "#f2f2ee", "WHT"],
+  ["Pink",   "#e08fb0", "PNK"], ["Cyan",   "#35a8a8", "CYN"]
 ];
+// Any swatch list can carry a code; fall back to the first three letters.
+const colorCode = (entry) => entry[2] || String(entry[0]).slice(0, 3).toUpperCase();
 
 // ---------- DOM refs ----------
 const svg = document.getElementById("board");
@@ -1101,7 +1117,8 @@ function renderBoard() {
         bg.setAttribute("cx", at.x); bg.setAttribute("cy", at.y); bg.setAttribute("r", "8.5");
         bg.setAttribute("fill", w.color);
         bg.setAttribute("stroke", "#16324a"); bg.setAttribute("stroke-width", "1.2");
-        bg.setAttribute("pointer-events", "none");
+        // Clickable: the number is the handiest place to recolour a wire.
+        bg.style.cursor = "pointer";
         bg.dataset.wireBadge = w.id;
         wireLayer.appendChild(bg);
         const tx = document.createElementNS(SVGNS, "text");
@@ -1510,22 +1527,44 @@ function renderPanel() {
   // swatches
   const sw = document.getElementById("swatches");
   sw.innerHTML = "";
-  for (const [name, hex] of WIRE_COLORS) {
-    const d = document.createElement("div");
+  for (const c of WIRE_COLORS) {
+    const hex = c[1];
+    const d = document.createElement("button");
     d.className = "sw" + (state.color.toLowerCase() === hex.toLowerCase() ? " active" : "");
-    d.style.background = hex; d.title = name;
+    d.style.background = hex; d.style.color = readableInk(hex);
+    d.title = c[0] + " " + hex;
+    d.setAttribute("aria-label", c[0]);
+    d.textContent = colorCode(c);
     d.onclick = () => { state.color = hex; renderPanel(); };
     sw.appendChild(d);
   }
-  const customWrap = document.createElement("label");
-  customWrap.className = "sw sw-custom";
-  customWrap.style.background = "var(--chrome-3)";
-  const cp = document.createElement("input");
-  cp.type = "color"; cp.value = /^#[0-9a-f]{6}$/i.test(state.color) ? state.color : "#d94141";
-  cp.oninput = (e) => { state.color = e.target.value; renderPanel(); };
-  customWrap.title = "Custom color";
-  customWrap.appendChild(cp);
-  sw.appendChild(customWrap);
+  // Hex, both ways: it shows the code for whatever is selected, and typing a
+  // code selects that colour.
+  const hexWrap = document.createElement("div");
+  hexWrap.className = "sw-hex";
+  const hexChip = document.createElement("span");
+  hexChip.className = "sw-hex-chip"; hexChip.style.background = state.color;
+  const hexField = document.createElement("input");
+  hexField.type = "text"; hexField.className = "pin-mono"; hexField.spellcheck = false;
+  hexField.value = String(state.color).toUpperCase();
+  hexField.title = "Hex colour code";
+  hexField.setAttribute("aria-label", "Hex colour code for new wires");
+  hexField.oninput = () => {
+    let v = hexField.value.trim();
+    if (v && v[0] !== "#") v = "#" + v;
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+      state.color = v.toLowerCase();
+      hexChip.style.background = state.color;
+      for (const b of sw.querySelectorAll(".sw"))
+        b.classList.toggle("active", (b.title || "").toLowerCase().indexOf(state.color) >= 0);
+    }
+  };
+  const named = WIRE_COLORS.find(c => c[1].toLowerCase() === String(state.color).toLowerCase());
+  const hexName = document.createElement("span");
+  hexName.className = "sw-hex-name";
+  hexName.textContent = named ? colorCode(named) : "CUSTOM";
+  hexWrap.appendChild(hexChip); hexWrap.appendChild(hexField); hexWrap.appendChild(hexName);
+  sw.appendChild(hexWrap);
 
   // component list
   const cl = document.getElementById("compList");
@@ -1745,10 +1784,18 @@ function renderWireList() {
     const item = document.createElement("div"); item.className = "wire-item";
     // Same number the badge draws on the run and the printed schedule uses.
     const nb = document.createElement("span"); nb.className = "wnum"; nb.textContent = (i + 1);
-    const sw = document.createElement("div"); sw.className = "swatch"; sw.style.background = w.color;
-    const cp = document.createElement("input"); cp.type = "color"; cp.value = w.color;
-    cp.style.cssText = "width:16px;height:16px;flex-shrink:0;";
-    cp.oninput = () => { w.color = safeColor(cp.value, w.color); renderAll(); };
+    const cp = document.createElement("button");
+    const wcode = WIRE_COLORS.find(x => x[1].toLowerCase() === String(w.color).toLowerCase());
+    cp.textContent = wcode ? colorCode(wcode) : "HEX";
+    cp.title = "Colour — " + (wcode ? wcode[0] : "custom") + " " + w.color;
+    cp.setAttribute("aria-label", "Change colour of wire " + (i + 1));
+    cp.style.cssText = "min-width:32px;height:18px;flex-shrink:0;border-radius:4px;padding:0 3px;cursor:pointer;" +
+                       "font-family:var(--mono);font-size:8.5px;font-weight:700;border:1px solid rgba(0,0,0,.35);" +
+                       "background:" + w.color + ";color:" + readableInk(w.color) + ";";
+    cp.onclick = (ev) => { ev.stopPropagation();
+      const r = cp.getBoundingClientRect();
+      openColorPicker(r.left - 200, r.bottom, w.color,
+        (hex) => { w.color = hex; renderAll(); }, "Wire " + (i + 1) + " colour"); };
     const lab = document.createElement("div"); lab.className = "wlabel";
     lab.textContent = `${a.comp.label}·${a.pin.name} → ${b.comp.label}·${b.pin.name}`;
     const del = document.createElement("button"); del.className = "tiny danger"; del.textContent = "✕";
@@ -2011,6 +2058,18 @@ function closePinSetup() { if (pinSetupEl) pinSetupEl.classList.remove("show"); 
 let drag = null; // {type:'comp'|'pan', ...}
 
 svg.addEventListener("pointerdown", (e) => {
+  // A wire's number badge opens its colour chooser.
+  const badgeEl = e.target.closest("[data-wire-badge]");
+  if (badgeEl) {
+    const bw = state.wires.find(x => x.id === badgeEl.dataset.wireBadge);
+    if (bw) {
+      selectOnly("wire", bw.id); renderAll();
+      openColorPicker(e.clientX, e.clientY, bw.color,
+        (hex) => { bw.color = hex; state.color = hex; renderAll(); },
+        "Wire " + (state.wires.indexOf(bw) + 1) + " colour");
+      e.preventDefault(); return;
+    }
+  }
   const pinEl = e.target.closest("[data-pin]");
   const wireEl = e.target.closest("[data-wire]");
   const bodyEl = e.target.closest("[data-body]");
@@ -2327,7 +2386,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") {
     closeReport(); closeLibrary(); closeShapePicker(); closePartBuilder(); closeCtxMenu();
-    closePinEditor(); closePinSetup();
+    closePinEditor(); closePinSetup(); closeColorPicker();
     state.armedPin = null; renderAll();
     return;
   }
@@ -2802,6 +2861,93 @@ const REPORT_CSS = `
 // The panel already does all of this, but reaching for it breaks the flow when
 // you are mid-diagram. Everything here writes to the same state, so the panel
 // and the toolbar swatch update with it.
+// ---------- Colour picker ----------
+// One chooser for wires and boards. Every swatch shows its three-letter code, so
+// the choice never depends on telling two colours apart, and the hex field works
+// both ways: pick a swatch and it fills in, type a hex and the preview follows.
+let colorPickEl = null;
+function closeColorPicker() { if (colorPickEl) { colorPickEl.remove(); colorPickEl = null; } }
+function openColorPicker(clientX, clientY, current, onPick, title, colors) {
+  closeCtxMenu(); closeColorPicker();
+  const list = colors || WIRE_COLORS;
+  colorPickEl = document.createElement("div");
+  colorPickEl.id = "colorPicker";
+  colorPickEl.style.cssText =
+    "position:fixed;z-index:9998;width:238px;padding:11px;border-radius:9px;" +
+    "background:var(--chrome-3);border:1px solid var(--line);box-shadow:0 8px 26px rgba(0,0,0,.45);" +
+    "font-size:12.5px;color:var(--ink);";
+  const head = document.createElement("div");
+  head.textContent = title || "Colour";
+  head.style.cssText = "font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;" +
+                       "color:var(--ink-mut);font-weight:600;margin-bottom:9px;";
+  colorPickEl.appendChild(head);
+
+  const grid = document.createElement("div");
+  grid.style.cssText = "display:grid;grid-template-columns:repeat(4,1fr);gap:6px;";
+  colorPickEl.appendChild(grid);
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:center;gap:7px;margin-top:10px;";
+  const chip = document.createElement("span");
+  chip.style.cssText = "width:28px;height:28px;border-radius:6px;flex-shrink:0;border:1px solid rgba(0,0,0,.4);";
+  const hexIn = document.createElement("input");
+  hexIn.type = "text"; hexIn.className = "pin-mono"; hexIn.spellcheck = false;
+  hexIn.setAttribute("aria-label", "Hex colour code");
+  hexIn.style.cssText = "flex:1;min-width:0;text-transform:uppercase;";
+  row.appendChild(chip); row.appendChild(hexIn);
+  colorPickEl.appendChild(row);
+
+  const nameOut = document.createElement("div");
+  nameOut.style.cssText = "font-size:11px;color:var(--ink-mut);margin-top:6px;min-height:14px;";
+  colorPickEl.appendChild(nameOut);
+
+  const native = document.createElement("input");
+  native.type = "color";
+  native.setAttribute("aria-label", "Pick any colour");
+  native.style.cssText = "width:100%;height:26px;margin-top:6px;";
+  colorPickEl.appendChild(native);
+
+  const paint = (hex, opts) => {
+    const o = opts || {};
+    chip.style.background = hex;
+    if (!o.fromField) hexIn.value = hex.toUpperCase();
+    if (!o.fromNative) native.value = hex;
+    const known = list.concat(WIRE_COLORS).find(c => c[1].toLowerCase() === hex.toLowerCase());
+    nameOut.textContent = known ? (colorCode(known) + " \u2014 " + known[0]) : "Custom colour";
+    for (const b of grid.children) {
+      const on = b.dataset.hex && b.dataset.hex.toLowerCase() === hex.toLowerCase();
+      b.style.boxShadow = on ? "0 0 0 2px var(--accent)" : "none";
+    }
+    if (!o.silent) onPick(hex);
+  };
+
+  for (const c of list) {
+    const b = document.createElement("button");
+    b.dataset.hex = c[1];
+    b.title = c[0] + " " + c[1];
+    b.setAttribute("aria-label", c[0]);
+    b.textContent = colorCode(c);
+    b.style.cssText = "height:30px;border-radius:6px;padding:0;cursor:pointer;border:1px solid #3a4761;" +
+                      "font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.03em;" +
+                      "background:" + c[1] + ";color:" + readableInk(c[1]) + ";";
+    b.onclick = () => paint(c[1], {});
+    grid.appendChild(b);
+  }
+
+  hexIn.oninput = () => {
+    let v = hexIn.value.trim();
+    if (v && v[0] !== "#") v = "#" + v;
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) paint(v.toLowerCase(), { fromField: true });
+  };
+  native.oninput = () => paint(native.value.toLowerCase(), { fromNative: true });
+
+  document.body.appendChild(colorPickEl);
+  paint(safeColor(current, "#d94141"), { silent: true });
+  const r = colorPickEl.getBoundingClientRect();
+  colorPickEl.style.left = Math.min(clientX + 10, window.innerWidth  - r.width  - 8) + "px";
+  colorPickEl.style.top  = Math.min(clientY + 10, window.innerHeight - r.height - 8) + "px";
+}
+
 let ctxEl = null;
 function closeCtxMenu() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
 
@@ -2824,10 +2970,12 @@ function openCtxMenu(clientX, clientY, items) {
       wrap.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;padding:5px 7px 7px;";
       for (const sw of it.swatches) {
         const b = document.createElement("button");
-        b.title = sw[0];
+        b.title = sw[0] + " " + sw[1];
         b.setAttribute("aria-label", sw[0]);
-        b.style.cssText = "width:19px;height:19px;border-radius:5px;padding:0;cursor:pointer;" +
-                          "border:1px solid #3a4761;background:" + sw[1];
+        b.textContent = colorCode(sw);
+        b.style.cssText = "min-width:34px;height:22px;border-radius:5px;padding:0 3px;cursor:pointer;" +
+                          "font-family:var(--mono);font-size:9px;font-weight:700;" +
+                          "border:1px solid #3a4761;background:" + sw[1] + ";color:" + readableInk(sw[1]) + ";";
         b.onclick = () => { it.onPick(sw[1]); closeCtxMenu(); };
         wrap.appendChild(b);
       }
@@ -2935,8 +3083,8 @@ svg.addEventListener("contextmenu", (e) => {
     openCtxMenu(e.clientX, e.clientY, [
       { label: "Rename…", run: () => { const t = prompt("Component name:", c.label);
           if (t !== null && t.trim()) { c.label = t.trim(); renderAll(); } } },
-      { swatches: COMP_COLORS, current: c.color || "#1f3b4d",
-        onPick: (hex) => { c.color = hex; renderAll(); } },
+      { label: "Colour\u2026", run: () => openColorPicker(e.clientX, e.clientY, c.color || "#1f3b4d",
+          (hex) => { c.color = hex; renderAll(); }, c.label + " colour", COMP_COLORS) },
       { sep: true },
       { label: "Save to library…", run: () => saveToLibrary(c) },
       { label: "Delete component", danger: true,
@@ -2949,8 +3097,9 @@ svg.addEventListener("contextmenu", (e) => {
   if (!w) return;
   selectOnly("wire", w.id); renderAll();
   openCtxMenu(e.clientX, e.clientY, [
-    { swatches: WIRE_COLORS, current: w.color,
-      onPick: (hex) => { w.color = hex; state.color = hex; renderAll(); } },
+    { label: "Colour\u2026", run: () => openColorPicker(e.clientX, e.clientY, w.color,
+        (hex) => { w.color = hex; state.color = hex; renderAll(); },
+        "Wire " + (state.wires.indexOf(w) + 1) + " colour") },
     { sep: true },
     { label: ((w.waypoints && w.waypoints.length)
                 ? "Reset routing (" + w.waypoints.length + " waypoint" + (w.waypoints.length === 1 ? "" : "s") + ")"
@@ -2963,6 +3112,7 @@ svg.addEventListener("contextmenu", (e) => {
 window.addEventListener("pointerdown", (e) => {
   if (ctxEl && !ctxEl.contains(e.target)) closeCtxMenu();
   if (pinEdEl && !pinEdEl.contains(e.target)) closePinEditor();
+  if (colorPickEl && !colorPickEl.contains(e.target)) closeColorPicker();
 }, true);
 window.addEventListener("blur", closeCtxMenu);
 
