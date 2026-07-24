@@ -5,7 +5,7 @@ SBCs, and components, define each part's connection points, and wire them
 point-to-point with color-coded jumper wires. Everything lives in one HTML file —
 no install, no build step, no server.
 
-**Current version:** v2.9 · **Live:** https://mangokarate.github.io/TinkerTool/
+**Current version:** v2.10 · **Live:** https://mangokarate.github.io/TinkerTool/
 
 ---
 
@@ -154,6 +154,20 @@ The version shows in the toolbar and travels with each commit message
 iterations so history stays in one place — no file renaming needed.
 
 ## Changelog
+
+### v2.10
+- **The Width and Height fields work again.** v2.7 made them re-grow the block to
+  fit its pins on every keystroke, so on a part already at that minimum every
+  attempt to shrink was silently undone and the fields looked dead. A size you
+  type is now honoured; `Grow to fit pins` is there when you want the old
+  behaviour.
+- **A wire's number badge opens that wire's menu** — colour, reset routing,
+  delete — instead of jumping straight to colours. A menu opened by a click also
+  ignores the follow-up press, so a double-click can't fire an item by accident.
+- **Double-click a board for a real editor**: name, colour, shape, width, height,
+  grow-to-fit and delete, instead of only a name prompt.
+- **The bend handle on a selected wire is a diamond**, not another round dot next
+  to the round number badge, and says what it is on hover.
 
 ### v2.9
 - **Every colour swatch shows its three-letter code** — BLK, BRN, RED, ORN, YEL,

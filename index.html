@@ -230,7 +230,7 @@
     <div class="brand">
       <span class="mark">◈ TinkerTool</span>
       <span class="sub">wiring visualizer</span>
-      <span class="ver" id="verTag">v2.9</span>
+      <span class="ver" id="verTag">v2.10</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -1098,13 +1098,18 @@ function renderBoard() {
     wireAxis.set(w.id, rr.axis);
 
     if (w.id === state.selectedWire && w.waypoints) {
+      // A diamond, not a disc: a round accent dot beside a round number badge
+      // read as a second badge rather than as something you can grab.
       for (const q of w.waypoints) {
-        const h = document.createElementNS(SVGNS, "circle");
-        h.setAttribute("cx", q.x); h.setAttribute("cy", q.y); h.setAttribute("r", "5");
+        const h = document.createElementNS(SVGNS, "polygon");
+        h.setAttribute("points", [q.x, q.y - 6, q.x + 6, q.y, q.x, q.y + 6, q.x - 6, q.y].join(" "));
         h.setAttribute("fill", "var(--accent)");
         h.setAttribute("stroke", "#14202a"); h.setAttribute("stroke-width", "1.5");
         h.setAttribute("pointer-events", "none");
         h.dataset.wpHandle = w.id;
+        const t = document.createElementNS(SVGNS, "title");
+        t.textContent = "Bend point \u2014 drag to move it, double-click to remove it";
+        h.appendChild(t);
         wireLayer.appendChild(h);
       }
     }
@@ -1610,8 +1615,12 @@ function renderEditor() {
   ed.appendChild(r1);
 
   const r2 = document.createElement("div"); r2.className = "row"; r2.style.marginTop = "8px";
-  r2.appendChild(field("Width", "number", c.w, v => { c.w = clampNum(v, 40, 4096); fitComponent(c); renderBoard(); markDirty(); }));
-  r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 4096); fitComponent(c); renderBoard(); markDirty(); }));
+  // A size typed here is a decision, so honour it. Calling fitComponent() on
+  // every keystroke grew the block straight back to its pin minimum, which on a
+  // part already at that minimum reverted every attempt to shrink — the field
+  // looked dead. Growing to fit pins still happens on load and on Arrange.
+  r2.appendChild(field("Width", "number", c.w, v => { c.w = clampNum(v, 40, 4096); renderBoard(); markDirty(); }));
+  r2.appendChild(field("Height", "number", c.h, v => { c.h = clampNum(v, 40, 4096); renderBoard(); markDirty(); }));
   ed.appendChild(r2);
 
   const r3 = document.createElement("div"); r3.className = "row"; r3.style.marginTop = "8px";
@@ -2092,9 +2101,7 @@ svg.addEventListener("pointerdown", (e) => {
     const bw = state.wires.find(x => x.id === badgeEl.dataset.wireBadge);
     if (bw) {
       selectOnly("wire", bw.id); renderAll();
-      openColorPicker(e.clientX, e.clientY, bw.color,
-        (hex) => { bw.color = hex; state.color = hex; renderAll(); },
-        "Wire " + (state.wires.indexOf(bw) + 1) + " colour");
+      wireMenu(bw, e.clientX, e.clientY);
       e.preventDefault(); return;
     }
   }
@@ -2169,8 +2176,7 @@ svg.addEventListener("pointerdown", (e) => {
         Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 12) {
       lastTap = { kind: null, id: null, at: 0 };
       selectOnly("comp", c.id); renderAll();
-      const nm = prompt("Component name:", c.label);
-      if (nm !== null) { c.label = nm || "Part"; renderAll(); }
+      openBoardEditor(c, e.clientX, e.clientY);
       e.preventDefault(); return;
     }
     lastTap = { kind: "comp", id: c.id, at: nowB, x: e.clientX, y: e.clientY };
@@ -2274,6 +2280,94 @@ svg.addEventListener("pointerup", (e) => {
 // renamed where it sits instead of hunting for its row in the inspector.
 let pinEdEl = null;
 function closePinEditor() { if (pinEdEl) { pinEdEl.remove(); pinEdEl = null; } }
+
+// Double-clicking a board should reach everything about it, not just its name.
+let boardEdEl = null;
+function closeBoardEditor() { if (boardEdEl) { boardEdEl.remove(); boardEdEl = null; } }
+function openBoardEditor(c, clientX, clientY) {
+  closeCtxMenu(); closePinEditor(); closeBoardEditor();
+  const compId = c.id;
+  const live = () => state.components.find(x => x.id === compId) || null;
+  boardEdEl = document.createElement("div");
+  boardEdEl.id = "boardEditor";
+  boardEdEl.style.cssText =
+    "position:fixed;z-index:9998;width:236px;padding:11px;border-radius:9px;" +
+    "background:var(--chrome-3);border:1px solid var(--line);box-shadow:0 8px 26px rgba(0,0,0,.45);" +
+    "font-size:12.5px;color:var(--ink);";
+  const head = document.createElement("div");
+  head.textContent = "Board";
+  head.style.cssText = "font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;" +
+                       "color:var(--ink-mut);font-weight:600;margin-bottom:9px;";
+  boardEdEl.appendChild(head);
+  const fld = (text, el) => {
+    const l = document.createElement("label");
+    l.className = "fld"; l.style.cssText = "display:block;margin-bottom:7px;";
+    const s = document.createElement("span"); s.textContent = text;
+    l.appendChild(s); l.appendChild(el); boardEdEl.appendChild(l); return el;
+  };
+  const nameIn = document.createElement("input");
+  nameIn.type = "text"; nameIn.value = c.label || "";
+  fld("Name", nameIn);
+  nameIn.oninput = () => { const t = live(); if (!t) return closeBoardEditor();
+                           t.label = nameIn.value || "Part"; renderBoard(); renderPanel(); markDirty(); };
+
+  const colBtn = document.createElement("button");
+  colBtn.type = "button"; colBtn.className = "color-btn";
+  paintColorBtn(colBtn, c.color || "#1f3b4d", COMP_COLORS);
+  fld("Colour", colBtn);
+  colBtn.onclick = () => { const t = live(); if (!t) return closeBoardEditor();
+    const r = colBtn.getBoundingClientRect();
+    openColorPicker(r.left - 210, r.bottom, t.color || "#1f3b4d", (hex) => {
+      t.color = hex; paintColorBtn(colBtn, hex, COMP_COLORS); renderBoard(); markDirty();
+    }, (t.label || "Board") + " colour", COMP_COLORS); };
+
+  const shapeSel = document.createElement("select");
+  if (!SHAPES.some(s => s[0] === (c.shape || "rect"))) {
+    const o = document.createElement("option"); o.value = c.shape;
+    o.textContent = c.shape + " (as saved)"; o.selected = true; shapeSel.appendChild(o);
+  }
+  for (const s of SHAPES) {
+    const o = document.createElement("option"); o.value = s[0]; o.textContent = s[1];
+    if ((c.shape || "rect") === s[0]) o.selected = true; shapeSel.appendChild(o);
+  }
+  fld("Shape", shapeSel);
+  shapeSel.onchange = () => { const t = live(); if (!t) return closeBoardEditor();
+                              t.shape = shapeSel.value; fitComponent(t); renderAll(); };
+
+  const sizeRow = document.createElement("div");
+  sizeRow.style.cssText = "display:flex;gap:7px;";
+  const mkSize = (label, key) => {
+    const l = document.createElement("label"); l.className = "fld"; l.style.flex = "1";
+    const s = document.createElement("span"); s.textContent = label;
+    const i = document.createElement("input"); i.type = "number"; i.value = c[key];
+    i.oninput = () => { const t = live(); if (!t) return closeBoardEditor();
+                        t[key] = clampNum(i.value, 40, 4096); renderBoard(); markDirty(); };
+    l.appendChild(s); l.appendChild(i); sizeRow.appendChild(l);
+  };
+  mkSize("Width", "w"); mkSize("Height", "h");
+  boardEdEl.appendChild(sizeRow);
+
+  const fit = document.createElement("button");
+  fit.className = "tiny"; fit.textContent = "Grow to fit pins";
+  fit.style.cssText = "width:100%;margin-top:8px;";
+  fit.onclick = () => { const t = live(); if (!t) return closeBoardEditor();
+    toast(fitComponent(t) ? "Resized to space the pins evenly." : "Already big enough for its pins.");
+    renderAll(); closeBoardEditor(); };
+  boardEdEl.appendChild(fit);
+
+  const del = document.createElement("button");
+  del.className = "tiny danger"; del.textContent = "Delete board";
+  del.style.cssText = "width:100%;margin-top:6px;";
+  del.onclick = () => { const t = live(); closeBoardEditor();
+                        if (t) { const nm = t.label; deleteComponent(compId); toast(nm + " deleted, with its wires."); } };
+  boardEdEl.appendChild(del);
+
+  document.body.appendChild(boardEdEl);
+  const r = boardEdEl.getBoundingClientRect();
+  boardEdEl.style.left = Math.min(clientX + 10, window.innerWidth  - r.width  - 8) + "px";
+  boardEdEl.style.top  = Math.min(clientY + 10, window.innerHeight - r.height - 8) + "px";
+  nameIn.focus(); nameIn.select();
+}
 function openPinEditor(c, p, clientX, clientY) {
   closeCtxMenu(); closePinEditor();
   // Resolve the pin by id inside every callback: an Undo, Load or deletion can
@@ -2414,7 +2508,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") {
     closeReport(); closeLibrary(); closeShapePicker(); closePartBuilder(); closeCtxMenu();
-    closePinEditor(); closePinSetup(); closeColorPicker();
+    closePinEditor(); closePinSetup(); closeColorPicker(); closeBoardEditor();
     state.armedPin = null; renderAll();
     return;
   }
@@ -2889,6 +2983,22 @@ const REPORT_CSS = `
 // The panel already does all of this, but reaching for it breaks the flow when
 // you are mid-diagram. Everything here writes to the same state, so the panel
 // and the toolbar swatch update with it.
+// Everything you can change about one wire, from wherever you reached it —
+// the number badge on the run, or a right-click.
+function wireMenu(w, clientX, clientY) {
+  const n = state.wires.indexOf(w) + 1;
+  openCtxMenu(clientX, clientY, [
+    { label: "Colour\u2026", run: () => openColorPicker(clientX, clientY, w.color,
+        (hex) => { w.color = hex; state.color = hex; renderAll(); }, "Wire " + n + " colour") },
+    { label: ((w.waypoints && w.waypoints.length)
+                ? "Reset routing (" + w.waypoints.length + " bend" + (w.waypoints.length === 1 ? "" : "s") + ")"
+                : "Routing is automatic"),
+      run: () => { if (w.waypoints) { delete w.waypoints; renderAll(); markDirty(); toast("Wire routing reset."); } } },
+    { sep: true },
+    { label: "Delete wire", danger: true, run: () => { deleteWire(w.id); toast("Wire deleted."); } }
+  ]);
+}
+
 // ---------- Colour picker ----------
 // One chooser for wires and boards. Every swatch shows its three-letter code, so
 // the choice never depends on telling two colours apart, and the hex field works
@@ -3026,6 +3136,10 @@ function openCtxMenu(clientX, clientY, items) {
     ctxEl.appendChild(b);
   }
   document.body.appendChild(ctxEl);
+  // Opened by a click, the menu lands under the pointer — a double-click's second
+  // press would fire whatever item it happened to cover. Stay inert briefly.
+  ctxEl.style.pointerEvents = "none";
+  setTimeout(() => { if (ctxEl) ctxEl.style.pointerEvents = ""; }, 260);
   const r = ctxEl.getBoundingClientRect();
   ctxEl.style.left = Math.min(clientX, window.innerWidth  - r.width  - 8) + "px";
   ctxEl.style.top  = Math.min(clientY, window.innerHeight - r.height - 8) + "px";
@@ -3124,23 +3238,14 @@ svg.addEventListener("contextmenu", (e) => {
   const w = state.wires.find(x => x.id === wireEl.dataset.wire);
   if (!w) return;
   selectOnly("wire", w.id); renderAll();
-  openCtxMenu(e.clientX, e.clientY, [
-    { label: "Colour\u2026", run: () => openColorPicker(e.clientX, e.clientY, w.color,
-        (hex) => { w.color = hex; state.color = hex; renderAll(); },
-        "Wire " + (state.wires.indexOf(w) + 1) + " colour") },
-    { sep: true },
-    { label: ((w.waypoints && w.waypoints.length)
-                ? "Reset routing (" + w.waypoints.length + " waypoint" + (w.waypoints.length === 1 ? "" : "s") + ")"
-                : "Routing is automatic"),
-      run: () => { if (w.waypoints) { delete w.waypoints; renderAll(); toast("Wire routing reset."); } } },
-    { label: "Delete wire", danger: true,
-      run: () => { deleteWire(w.id); toast("Wire deleted."); } }
-  ]);
+  wireMenu(w, e.clientX, e.clientY);
 });
 window.addEventListener("pointerdown", (e) => {
   if (ctxEl && !ctxEl.contains(e.target)) closeCtxMenu();
   if (pinEdEl && !pinEdEl.contains(e.target)) closePinEditor();
   if (colorPickEl && !colorPickEl.contains(e.target)) closeColorPicker();
+  if (boardEdEl && !boardEdEl.contains(e.target) && !(colorPickEl && colorPickEl.contains(e.target)))
+    closeBoardEditor();
 }, true);
 window.addEventListener("blur", closeCtxMenu);
 
@@ -3589,7 +3694,7 @@ function commitHistory(label) {
 }
 function applyHistory(raw) {
   const d = JSON.parse(raw);
-  closePinEditor();
+  closePinEditor(); closeBoardEditor();
   restoring = true;
   state.components = d.components; state.wires = d.wires; state.notes = d.notes;
   state.routing = d.routing || "tidy";
@@ -3753,7 +3858,7 @@ function validateLayout(d) {
 // Keeping the pre-load board as one undo step: a load that turns out to be the
 // wrong file used to be unrecoverable, because applyLayout cleared history.
 function applyLayout(x, keepHistory) {
-  closePinEditor();
+  closePinEditor(); closeBoardEditor();
   if (keepHistory) {
     const before = historySnapshot();
     if (lastCommitted !== null && before !== lastCommitted) past.push(lastCommitted);
