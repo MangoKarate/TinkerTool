@@ -180,6 +180,12 @@
   .sw-hex-chip { width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0; border: 1px solid rgba(0,0,0,.4); }
   .sw-hex input { flex: 1; min-width: 0; text-transform: uppercase; font-size: 11px; }
   .sw-hex-name { font-family: var(--mono); font-size: 10px; color: var(--ink-mut); min-width: 46px; }
+  /* A colour field that states its own colour, rather than only showing it. */
+  .color-btn {
+    width: 100%; height: 30px; border-radius: 7px; cursor: pointer; padding: 0;
+    border: 1px solid var(--line); box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  }
   .sw.active { border-color: var(--ink); box-shadow: inset 0 0 0 1px rgba(0,0,0,.25), 0 0 0 2px var(--accent); }
   .sw-custom { display: flex; align-items: center; justify-content: center; }
   input[type="color"] { width: 26px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; }
@@ -1610,9 +1616,15 @@ function renderEditor() {
 
   const r3 = document.createElement("div"); r3.className = "row"; r3.style.marginTop = "8px";
   const cl = document.createElement("label"); cl.className = "fld"; cl.style.flex = "1";
-  const cs = document.createElement("span"); cs.textContent = "Color";
-  const ci = document.createElement("input"); ci.type = "color"; ci.value = c.color || "#1f3b4d";
-  ci.oninput = () => { c.color = safeColor(ci.value, c.color); renderBoard(); markDirty(); };
+  const cs = document.createElement("span"); cs.textContent = "Colour";
+  const ci = document.createElement("button"); ci.type = "button"; ci.className = "color-btn";
+  paintColorBtn(ci, c.color || "#1f3b4d", COMP_COLORS);
+  ci.onclick = () => {
+    const r = ci.getBoundingClientRect();
+    openColorPicker(r.left - 210, r.bottom, c.color || "#1f3b4d", (hex) => {
+      c.color = hex; paintColorBtn(ci, hex, COMP_COLORS); renderBoard(); markDirty();
+    }, c.label + " colour", COMP_COLORS);
+  };
   cl.appendChild(cs); cl.appendChild(ci);
   r3.appendChild(cl); ed.appendChild(r3);
 
@@ -1639,8 +1651,12 @@ function renderEditor() {
   csw.style.cssText = "display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;";
   for (const pair of COMP_COLORS) {
     const btn = document.createElement("button");
-    btn.title = pair[0];
-    btn.style.cssText = "width:21px;height:21px;border-radius:5px;padding:0;cursor:pointer;" +
+    btn.title = pair[0] + " " + pair[1];
+    btn.setAttribute("aria-label", pair[0]);
+    btn.textContent = colorCode(pair);
+    btn.style.cssText = "width:34px;height:21px;border-radius:5px;padding:0;cursor:pointer;" +
+                        "font-family:var(--mono);font-size:8.5px;font-weight:700;" +
+                        "color:" + readableInk(pair[1]) + ";" +
                         "border:1px solid #3a4761;background:" + pair[1];
     btn.onclick = () => { c.color = pair[1]; renderAll(); };
     csw.appendChild(btn);
@@ -1828,9 +1844,21 @@ function readableInk(hex) {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "#14202a" : "#e6eff5";
 }
 const COMP_COLORS = [
-  ["Slate", "#1f3b4d"], ["Teal", "#20604f"], ["Plum", "#4a2f52"], ["Rust", "#5e3320"],
-  ["Navy", "#22304f"], ["Moss", "#3c4a25"], ["Graphite", "#2b3038"], ["Sand", "#d8cbb0"]
+  ["Slate", "#1f3b4d", "SLT"], ["Teal",  "#20604f", "TEL"],
+  ["Plum",  "#4a2f52", "PLM"], ["Rust",  "#5e3320", "RST"],
+  ["Navy",  "#22304f", "NVY"], ["Moss",  "#3c4a25", "MOS"],
+  ["Graphite", "#2b3038", "GPH"], ["Sand", "#d8cbb0", "SND"]
 ];
+// Give any button the look of the colour it sets: its code, on the colour
+// itself, in ink you can read. Used by the builder and the inspector.
+function paintColorBtn(btn, hex, list) {
+  const all = (list || []).concat(COMP_COLORS, WIRE_COLORS);
+  const known = all.find(c => c[1].toLowerCase() === String(hex).toLowerCase());
+  btn.textContent = known ? colorCode(known) : "HEX";
+  btn.title = (known ? known[0] : "Custom colour") + " " + hex;
+  btn.style.background = hex;
+  btn.style.color = readableInk(hex);
+}
 
 function wireExists(a, b) {
   return state.wires.some(w => (w.from === a && w.to === b) || (w.from === b && w.to === a));
@@ -3241,7 +3269,8 @@ function buildBuilderShell() {
           '<label class="fld" style="flex:2;"><span>Shape</span><select id="pbShape"></select></label>' +
           '<label class="fld" style="flex:1;"><span>Width</span><input id="pbW" type="number" min="40" max="900"></label>' +
           '<label class="fld" style="flex:1;"><span>Height (0 = auto)</span><input id="pbH" type="number" min="0" max="900"></label>' +
-          '<label class="fld" style="flex:0 0 62px;"><span>Colour</span><input id="pbColor" type="color"></label>' +
+          '<label class="fld" style="flex:0 0 74px;"><span>Colour</span>' +
+          '<button id="pbColor" type="button" class="color-btn"></button></label>' +
         '</div>' +
         '<div style="margin-top:10px; background:var(--chrome-2); border:1px solid var(--line); border-radius:8px; padding:8px;">' +
           '<svg id="pbPreview" style="width:100%; height:190px; display:block;"></svg>' +
@@ -3281,7 +3310,15 @@ function buildBuilderShell() {
     el.oninput = el.onchange = () => { draft[key] = num ? +el.value : el.value; refreshPreview(); };
   };
   bind("#pbName", "name"); bind("#pbCat", "cat"); bind("#pbShape", "shape");
-  bind("#pbW", "w", true); bind("#pbH", "h", true); bind("#pbColor", "color");
+  bind("#pbW", "w", true); bind("#pbH", "h", true);
+  // Colour is a button, not an input, so it is wired by hand to the picker.
+  const pbColor = builderEl.querySelector("#pbColor");
+  pbColor.onclick = () => {
+    const r = pbColor.getBoundingClientRect();
+    openColorPicker(r.left - 210, r.bottom, draft.color, (hex) => {
+      draft.color = hex; paintColorBtn(pbColor, hex, COMP_COLORS); refreshPreview();
+    }, "Part colour", COMP_COLORS);
+  };
 
   builderEl.querySelector("#pbAddOne").onclick = () => {
     draft.pins.push({ num: "", name: "", side: builderEl.querySelector("#pbBulkSide").value });
@@ -3310,7 +3347,7 @@ function fillBuilderFields() {
   builderEl.querySelector("#pbShape").value = draft.shape;
   builderEl.querySelector("#pbW").value     = draft.w;
   builderEl.querySelector("#pbH").value     = draft.h || 0;
-  builderEl.querySelector("#pbColor").value = draft.color;
+  paintColorBtn(builderEl.querySelector("#pbColor"), draft.color, COMP_COLORS);
 }
 
 function renderPinRows(scrollToEnd) {

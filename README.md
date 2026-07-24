@@ -168,6 +168,9 @@ iterations so history stays in one place — no file renaming needed.
   (`RED — Red`) and says `Custom colour` when it doesn't.
 - The wire list, the right-click menus and the panel palette all use the same
   labelled swatches, and the wire list chips show each wire's colour code.
+- **Board colours work the same way**, with their own codes (SLT, TEL, PLM, RST,
+  NVY, MOS, GPH, SND). The part builder's Colour field and the inspector's
+  colour field are both labelled buttons that open the same picker.
 
 ### v2.8
 Closed the v2.7 QC review (a dynamic review — the reviewer drove the app).
