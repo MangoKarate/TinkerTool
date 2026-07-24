@@ -44,8 +44,9 @@ from any device at your Pages URL.
   without hunting for its row; double-click a component to rename it.
 - **Pin numbers** — a pin's number is separate from where it sits, so a board
   can keep a readable layout — power down one side, GPIO down the other — while
-  still telling you which physical pin to count to. The number draws outside the
-  block and the function name inside, the way an IC schematic is normally drawn.
+  still telling you which physical pin to count to. The number draws inside the
+  block right beside its pin, with the function name inboard of it (`VBUS 40`),
+  so nothing sits out on the mat where the wires run.
 - **Your own parts** — edit any board on the canvas, then `Save to library` to
   keep it under "My parts". Built-ins are read-only, so forking one never costs
   you the original.
@@ -156,6 +157,10 @@ iterations so history stays in one place — no file renaming needed.
 ## Changelog
 
 ### v2.10
+- **Pin numbers moved inside the block.** The number now sits next to its own pin
+  with the function name inboard of it — `VBUS 40` — the way a schematic reads.
+  Outside, the number collided with the wire leaving the pin and with that wire's
+  number badge. Blocks widen enough that a left and a right label cannot meet.
 - **The Width and Height fields work again.** v2.7 made them re-grow the block to
   fit its pins on every keystroke, so on a part already at that minimum every
   attempt to shrink was silently undone and the fields looked dead. A size you

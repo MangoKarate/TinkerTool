@@ -567,6 +567,13 @@ function pinKind(p) {
 // A pin needs room for its pad and its label. Below this pitch they overlap,
 // which is what a hand-added row of pins used to do to an 80px-tall block.
 const PIN_PITCH = 24, PIN_PITCH_TB = 48, PIN_ENDS = 26;
+// Both label texts are monospace, so their width is just a character count —
+// no getBBox, which is far too slow to run per pin per render.
+const PIN_NAME_CH = 5.7, PIN_NUM_CH = 5.1, PIN_GAP = 6, PIN_NUDGE = 11;
+function pinLabelWidth(p) {
+  const numW = p.num ? String(p.num).length * PIN_NUM_CH + PIN_GAP : 0;
+  return PIN_NUDGE + numW + String(p.name || "").length * PIN_NAME_CH + 4;
+}
 
 function sideCount(c, side) { return c.pins.filter(p => p.side === side).length; }
 
@@ -574,7 +581,12 @@ function sideCount(c, side) { return c.pins.filter(p => p.side === side).length;
 // grows: shrinking would undo a size the user set by hand.
 function fitComponent(c) {
   const minH = Math.max(70, Math.max(sideCount(c, "left"), sideCount(c, "right")) * PIN_PITCH + PIN_ENDS);
-  const minW = Math.max(90, Math.max(sideCount(c, "top"), sideCount(c, "bottom")) * PIN_PITCH_TB + PIN_ENDS);
+  // Now that the number sits inside next to its pin, a left and a right label
+  // grow towards each other. Reserve the widest of each so they cannot meet.
+  const widest = (side) => c.pins.filter(p => p.side === side)
+                                 .reduce((m, p) => Math.max(m, pinLabelWidth(p)), 0);
+  const minW = Math.ceil(Math.max(90, Math.max(sideCount(c, "top"), sideCount(c, "bottom")) * PIN_PITCH_TB + PIN_ENDS,
+                                  widest("left") + widest("right") + 10));
   let grew = false;
   if (c.h < minH) { c.h = minH; grew = true; }
   if (c.w < minW) { c.w = minW; grew = true; }
@@ -1243,37 +1255,38 @@ function renderBoard() {
       hole.setAttribute("fill", "#14202a"); hole.setAttribute("pointer-events", "none");
       g.appendChild(hole);
 
-      // pin name
+      // Both labels live INSIDE the block now, reading the way a schematic does:
+      // the physical pin number closest to the pin, the function name inboard of
+      // it. Outside, the number sat on the mat and collided with the wire leaving
+      // the pin and with that wire's number badge.
+      const numW = p.num ? String(p.num).length * PIN_NUM_CH + PIN_GAP : 0;
+      if (p.num) {
+        const nt = document.createElementNS(SVGNS, "text");
+        let nx = pos.x, ny = pos.y, na = "middle";
+        if (p.side === "left")   { nx = pos.x + PIN_NUDGE; na = "start"; }
+        if (p.side === "right")  { nx = pos.x - PIN_NUDGE; na = "end"; }
+        if (p.side === "top")    { ny = pos.y + 12; }
+        if (p.side === "bottom") { ny = pos.y - 12; }
+        nt.setAttribute("x", nx); nt.setAttribute("y", ny);
+        nt.setAttribute("text-anchor", na); nt.setAttribute("dominant-baseline", "middle");
+        nt.setAttribute("fill", ink); nt.setAttribute("fill-opacity", ".95");
+        nt.setAttribute("font-size", "8.5"); nt.setAttribute("font-weight", "700");
+        nt.setAttribute("font-family", "var(--mono)"); nt.setAttribute("pointer-events", "none");
+        nt.textContent = p.num;
+        g.appendChild(nt);
+      }
       const t = document.createElementNS(SVGNS, "text");
-      const nudge = 13;
       let tx = pos.x, ty = pos.y, anchor = "middle";
-      if (p.side === "left")  { tx = pos.x + nudge; anchor = "start"; }
-      if (p.side === "right") { tx = pos.x - nudge; anchor = "end"; }
-      if (p.side === "top")   { ty = pos.y + 13; }
-      if (p.side === "bottom"){ ty = pos.y - 9; }
+      if (p.side === "left")  { tx = pos.x + PIN_NUDGE + numW; anchor = "start"; }
+      if (p.side === "right") { tx = pos.x - PIN_NUDGE - numW; anchor = "end"; }
+      if (p.side === "top")   { ty = pos.y + 12 + (p.num ? 11 : 0); }
+      if (p.side === "bottom"){ ty = pos.y - 12 - (p.num ? 11 : 0); }
       t.setAttribute("x", tx); t.setAttribute("y", ty);
       t.setAttribute("text-anchor", anchor); t.setAttribute("dominant-baseline", "middle");
       t.setAttribute("fill", ink); t.setAttribute("fill-opacity", ".72"); t.setAttribute("font-size", "9.5");
       t.setAttribute("font-family", "var(--mono)"); t.setAttribute("pointer-events", "none");
       t.textContent = p.name;
       g.appendChild(t);
-
-      // Pin number sits outside the block, on the mat, the way an IC schematic
-      // draws it: number outside, function name inside.
-      if (p.num) {
-        const nt = document.createElementNS(SVGNS, "text");
-        let nx = pos.x, ny = pos.y, na = "middle";
-        if (p.side === "left")   { nx = pos.x - 9; na = "end"; }
-        if (p.side === "right")  { nx = pos.x + 9; na = "start"; }
-        if (p.side === "top")    { ny = pos.y - 10; }
-        if (p.side === "bottom") { ny = pos.y + 13; }
-        nt.setAttribute("x", nx); nt.setAttribute("y", ny);
-        nt.setAttribute("text-anchor", na); nt.setAttribute("dominant-baseline", "middle");
-        nt.setAttribute("fill", "#6b7784"); nt.setAttribute("font-size", "8.5");
-        nt.setAttribute("font-family", "var(--mono)"); nt.setAttribute("pointer-events", "none");
-        nt.textContent = p.num;
-        g.appendChild(nt);
-      }
     }
     compLayer.appendChild(g);
   }
